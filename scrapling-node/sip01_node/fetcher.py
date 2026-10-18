@@ -10,6 +10,10 @@ Browser-tier fetches can hang past their own ``timeout`` argument (upstream
 issues #468/#491), so every browser fetch is wrapped in an
 ``asyncio.wait_for`` hard timeout. Tier 1 runs in a thread with the same
 hard timeout applied from the async side.
+
+After every successful response the final URL (post-redirect) is re-checked
+against the public-host SSRF guard so a redirect cannot escape the pre-request
+check.
 """
 from __future__ import annotations
 
@@ -218,6 +222,13 @@ class TieredFetcher:
 
             status = _status_of(resp)
             html = _html_of(resp)
+            final = _final_url_of(resp, url)
+            # re-validate final URL after redirects (tier-1 follow_redirects)
+            if final != url:
+                try:
+                    await asyncio.to_thread(_check_public_host, final)
+                except SSRFError as exc:
+                    raise SSRFError(f"redirect target {final} failed SSRF guard: {exc}") from exc
             if _looks_blocked(status, html) and i < len(tiers):
                 log.info("tier %d blocked for %s (status %s) — escalating", tier_no, url, status)
                 continue
@@ -225,7 +236,7 @@ class TieredFetcher:
                 raise FetchError(f"HTTP {status} for {url}")
             _cap_size(html, status, self.max_page_kb)
             return FetchResult(
-                url=url, final_url=_final_url_of(resp, url), html=html,
+                url=url, final_url=final, html=html,
                 status=status, tier=tier_no,
             )
         if last_exc is not None and isinstance(last_exc, FetchError):

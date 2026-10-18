@@ -4,13 +4,16 @@
 - Per-domain politeness: one request in flight per domain, ``per_domain_delay``
   pacing, and robots.txt ``crawl-delay`` wins when larger.
 - robots.txt via stdlib ``urllib.robotparser``, fetched with the tier-1
-  Scrapling Fetcher (in a worker thread), cached per domain.
+  Scrapling Fetcher (in a worker thread), cached per domain. robots.txt URL
+  is run through the public-host SSRF guard before the fetch.
 - Freshness: recrawl after 24h, interval doubling per unchanged crawl,
   capped at 30 days. Failures go to a negative cache with backoff.
+  Successful and terminal-failed URLs are left in 'pending' with next_try
+  set so the existing next_batch filters actually resurface them.
 - Same-domain link discovery up to ``max_depth``; optional RSS/sitemap
   discovery from the page head.
 - Bandwidth budget: rolling hourly byte counter, crawling pauses when the
-  configured ``hourly_bandwidth_mb`` is exhausted.
+  configured ``hourly_bandwidth_mb`` is exhausted (claimed rows released).
 - Graceful shutdown: SIGINT/SIGTERM stop the loop after in-flight work.
 """
 from __future__ import annotations
@@ -25,7 +28,7 @@ from urllib.parse import urlsplit
 
 from . import sip01
 from .config import Config
-from .fetcher import FetchError, SSRFError, TieredFetcher
+from .fetcher import FetchError, SSRFError, TieredFetcher, _check_public_host
 from .parser import ParsedPage, parse_page
 from .publisher import Publisher
 
@@ -59,6 +62,7 @@ MAX_RECRAWL = 30 * 24 * 3600      # 30d
 NEGATIVE_TTL = 6 * 3600           # 6h for fetch failures
 MAX_ATTEMPTS = 4
 ROBOTS_TTL = 24 * 3600
+INFLIGHT_STALE_SEC = 600          # reclaim stuck inflight after 10 min
 
 
 @dataclass
@@ -88,22 +92,20 @@ class CrawlQueue:
         self.db.execute("UPDATE queue SET status = 'pending' WHERE status = 'inflight'")
         self.db.commit()
 
-    def add(self, url: str, depth: int) -> bool:
-        """Enqueue a URL (normalized). Returns True if it was new."""
-        normalized = sip01.normalize_index_url(url)
-        if normalized is None:
-            return False
+    def reclaim_stale_inflight(self) -> int:
+        """Return long-running inflight claims to pending. Returns count reclaimed."""
         now = int(time.time())
         cur = self.db.execute(
-            "INSERT OR IGNORE INTO queue (url, depth, status, next_try, added_at)"
-            " VALUES (?, ?, 'pending', ?, ?)",
-            (normalized, depth, now, now),
+            "UPDATE queue SET status = 'pending', next_try = ? "
+            "WHERE status = 'inflight' AND added_at < ?",
+            (now, now - INFLIGHT_STALE_SEC),
         )
         self.db.commit()
-        return cur.rowcount > 0
+        return cur.rowcount
 
     def next_batch(self, limit: int) -> list[tuple[str, int]]:
         """Due pending URLs that are not negatively cached or fresh."""
+        self.reclaim_stale_inflight()
         now = int(time.time())
         rows = self.db.execute(
             "SELECT q.url, q.depth FROM queue q"
@@ -122,8 +124,17 @@ class CrawlQueue:
         self.db.execute("UPDATE queue SET status = 'inflight' WHERE url = ?", (url,))
         self.db.commit()
 
+    def release(self, url: str) -> None:
+        """Return a claimed URL to pending without counting an attempt (bandwidth/stop)."""
+        now = int(time.time())
+        self.db.execute(
+            "UPDATE queue SET status = 'pending', next_try = ? WHERE url = ? AND status = 'inflight'",
+            (now, url),
+        )
+        self.db.commit()
+
     def mark_done(self, url: str, content_hash: str | None) -> None:
-        """Record a successful crawl; double the recrawl interval when unchanged."""
+        """Record a successful crawl; leave pending with next_try so recrawl fires."""
         now = int(time.time())
         row = self.db.execute(
             "SELECT recrawl_after, last_hash FROM pages WHERE url = ?", (url,)).fetchone()
@@ -138,20 +149,27 @@ class CrawlQueue:
             " VALUES (?, ?, ?, ?)",
             (url, now, interval, content_hash),
         )
-        self.db.execute("UPDATE queue SET status = 'done' WHERE url = ?", (url,))
+        # resurrection: stay pending so next_batch sees it after the interval
+        self.db.execute(
+            "UPDATE queue SET status = 'pending', next_try = ? WHERE url = ?",
+            (now + interval, url),
+        )
         self.db.commit()
 
     def mark_failed(self, url: str, reason: str) -> None:
-        """Record a failure: retry with backoff, then park in negative cache."""
+        """Record a failure: retry with backoff, then negative-cache + pending resurrection."""
         now = int(time.time())
         row = self.db.execute("SELECT attempts FROM queue WHERE url = ?", (url,)).fetchone()
         attempts = (row[0] if row else 0) + 1
         if attempts >= MAX_ATTEMPTS:
-            self.db.execute("UPDATE queue SET status = 'failed', attempts = ? WHERE url = ?",
-                            (attempts, url))
             self.db.execute(
                 "INSERT OR REPLACE INTO negative_cache (url, reason, expires) VALUES (?, ?, ?)",
                 (url, reason[:200], now + NEGATIVE_TTL),
+            )
+            # leave pending; next_batch excludes while negative_cache is active
+            self.db.execute(
+                "UPDATE queue SET status = 'pending', attempts = ?, next_try = ? WHERE url = ?",
+                (attempts, now + NEGATIVE_TTL, url),
             )
         else:
             backoff = 60 * (2 ** attempts)
@@ -182,6 +200,12 @@ class _RobotsCache:
 
         rp = urllib.robotparser.RobotFileParser()
         url = f"https://{domain}/robots.txt"
+        # SSRF guard before any fetch of robots.txt
+        try:
+            await asyncio.to_thread(_check_public_host, url)
+        except SSRFError as exc:
+            log.info("robots.txt SSRF refused for %s: %s — allowing", domain, exc)
+            return None
         try:
             resp = await asyncio.wait_for(
                 asyncio.to_thread(Fetcher.get, url, impersonate="chrome", timeout=15),
@@ -321,7 +345,8 @@ class Crawler:
             self.queue.mark_done(url, None)
             return None
         if self.bandwidth.remaining() <= 0:
-            log.warning("hourly bandwidth budget exhausted — pausing %s", url)
+            log.warning("hourly bandwidth budget exhausted — releasing %s", url)
+            self.queue.release(url)
             await asyncio.sleep(60)
             return None
 
@@ -384,6 +409,9 @@ class Crawler:
 
         async def worker(url: str, depth: int) -> None:
             async with sem:
+                if self._stop.is_set():
+                    self.queue.release(url)
+                    return
                 try:
                     await self.crawl_one(url, depth)
                 except Exception:  # noqa: BLE001 - keep the loop alive

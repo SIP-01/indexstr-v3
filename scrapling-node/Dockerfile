@@ -8,17 +8,18 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # System deps for the browser tiers (chromium/patchright headless).
+# libasound2 was renamed to libasound2t64 on Debian trixie (python:3.12-slim base).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
       libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-      libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 \
+      libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install -r requirements.txt \
  # browser download for DynamicFetcher/StealthyFetcher tiers
- && scrapling install || true
+ && scrapling install
 
 # Non-root runtime user; /data holds the sqlite queue, outbox and indexer key.
 RUN useradd --create-home --uid 10001 node \

@@ -6,7 +6,8 @@ services:
     container_name: sip01-scrapling-node
     restart: unless-stopped
     env_file:
-      - .env          # SIP01_NSEC=nsec1... (never commit this file)
+      - path: .env
+        required: false   # SIP01_NSEC=nsec1... (never commit this file)
     environment:
       SIP01_DATA_DIR: /data
     volumes:

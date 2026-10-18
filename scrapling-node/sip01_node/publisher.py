@@ -67,12 +67,23 @@ def load_or_create_key(nsec: str | None, key_path: Path) -> str:
     return seckey
 
 
+def _safe_image(url: str | None) -> str | None:
+    """Return the image URL only if it is https; otherwise None."""
+    if not url or not isinstance(url, str):
+        return None
+    u = url.strip()
+    if u.startswith("https://") and len(u) > 8:
+        return u
+    return None
+
+
 def build_observation(page: ParsedPage, *, source: str, url: str | None = None) -> dict:
     """Build an unsigned SIP-01 event from a parsed page and self-validate it.
 
     Raises ValueError if the built event fails protocol validation (should
     never happen — build is byte-compatible with the reference).
     """
+    image = _safe_image(page.image)
     ev = sip01.build_event(
         url or page.url,
         page.title,
@@ -81,7 +92,7 @@ def build_observation(page: ParsedPage, *, source: str, url: str | None = None) 
         lang=page.lang,
         published=page.published,
         source=source,
-        image=page.image,
+        image=image,
     )
     result = sip01.validate_event({**ev, "pubkey": "0" * 64, "id": "0" * 64, "sig": "0" * 128})
     if not result["valid"]:

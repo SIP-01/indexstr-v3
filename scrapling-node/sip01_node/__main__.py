@@ -55,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     if args.source:
         cfg.source = args.source
+        # re-apply the loader's source-mode side effects so --source indexstr/v3
+        # enables heartbeat + intake the same way a config file does
+        if cfg.source == "indexstr/v3":
+            cfg.heartbeat = True
+            cfg.intake = True
     if args.seed:
         cfg.seeds = list(dict.fromkeys([*cfg.seeds, *args.seed]))
     _configure_logging(cfg)
