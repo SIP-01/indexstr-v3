@@ -256,6 +256,9 @@ class RelayPool:
     Connections are opened lazily per publish and kept alive for reuse.
     A relay that fails is backed off exponentially (2s, 4s, ... capped at
     ``max_backoff``) so a dead relay never stalls the fan-out.
+
+    Concurrent publishes to the same relay are serialized with a per-relay
+    lock so EVENT/OK messages cannot interleave.
     """
 
     def __init__(
@@ -271,6 +274,7 @@ class RelayPool:
         self.ack_timeout = ack_timeout
         self.max_backoff = max_backoff
         self._states: dict[str, _RelayState] = {r: _RelayState(r) for r in self.relays}
+        self._locks: dict[str, asyncio.Lock] = {r: asyncio.Lock() for r in self.relays}
 
     async def _connect(self, st: _RelayState) -> object:
         import websockets  # deferred: keeps the module importable without the dep
@@ -297,25 +301,27 @@ class RelayPool:
 
     async def _publish_one(self, st: _RelayState, ev: dict) -> PublishAck:
         eid = ev.get("id", "")
-        try:
-            ws = await self._connect(st)
-            await ws.send(json.dumps(["EVENT", ev], ensure_ascii=False))
-            while True:
-                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=self.ack_timeout))
-                kind = msg[0] if msg else ""
-                if kind == "OK" and len(msg) >= 3 and msg[1] == eid:
-                    if msg[2]:
-                        return PublishAck(st.url, eid, True, msg[3] if len(msg) > 3 else "")
-                    return PublishAck(st.url, eid, False, msg[3] if len(msg) > 3 else "rejected")
-                if kind == "NOTICE":
-                    log.info("NOTICE from %s: %s", st.url, msg[1] if len(msg) > 1 else "")
-                # keep reading until our OK (or timeout)
-        except asyncio.TimeoutError:
-            self._note_failure(st)
-            return PublishAck(st.url, eid, False, "ack timeout", timed_out=True)
-        except Exception as exc:
-            self._note_failure(st)
-            return PublishAck(st.url, eid, False, f"{type(exc).__name__}: {exc}")
+        lock = self._locks[st.url]
+        async with lock:
+            try:
+                ws = await self._connect(st)
+                await ws.send(json.dumps(["EVENT", ev], ensure_ascii=False))
+                while True:
+                    msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=self.ack_timeout))
+                    kind = msg[0] if msg else ""
+                    if kind == "OK" and len(msg) >= 3 and msg[1] == eid:
+                        if msg[2]:
+                            return PublishAck(st.url, eid, True, msg[3] if len(msg) > 3 else "")
+                        return PublishAck(st.url, eid, False, msg[3] if len(msg) > 3 else "rejected")
+                    if kind == "NOTICE":
+                        log.info("NOTICE from %s: %s", st.url, msg[1] if len(msg) > 1 else "")
+                    # keep reading until our OK (or timeout)
+            except asyncio.TimeoutError:
+                self._note_failure(st)
+                return PublishAck(st.url, eid, False, "ack timeout", timed_out=True)
+            except Exception as exc:
+                self._note_failure(st)
+                return PublishAck(st.url, eid, False, f"{type(exc).__name__}: {exc}")
 
     async def publish(self, ev: dict) -> list[PublishAck]:
         """Fan an event out to every relay; returns one ack per relay."""
