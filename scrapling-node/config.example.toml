@@ -1,0 +1,73 @@
+# sip01-scrapling-node configuration.
+# Every option can also be set via env: SIP01_<OPTION_UPPER> (lists comma-separated).
+# The indexer secret key is read from SIP01_NSEC ONLY — never put it in this file.
+
+# Seed URLs to start crawling from (repeatable via CLI: --seed URL).
+seeds = [
+  # "https://example.com/",
+]
+
+# Relay fan-out set (mirrors the live v3 nodes).
+relays = [
+  # SIP-01 index relays
+  "wss://relay-na1.metanomalist.com",
+  "wss://test-sip-relay.sip-01test.workers.dev",
+  "wss://sip-relay-2.sip-booster-relay.workers.dev",
+  "wss://sip-relay-3.uncaged-sip.workers.dev",
+  "wss://sip-relay-4.sip-relay-4.workers.dev",
+  # Search relays (NIP-50)
+  "wss://relay.nostr.band",
+  "wss://relay.ditto.pub",
+  "wss://search.nos.today",
+  "wss://relay.noswhere.com",
+  # Write relays
+  "wss://jskitty.cat/nostr",
+  "wss://relay.primal.net",
+  "wss://relay.damus.io",
+  "wss://nostr.hifish.org",
+]
+
+# Source tag written into every observation event.
+# "crawlstr/v3" (default) = crawler node.
+# "indexstr/v3" = indexer mode; also enables the kind-16919 heartbeat + intake flags.
+source = "indexstr/v3"
+
+# Data directory: sqlite queue/outbox, adaptive store, generated indexer key.
+data_dir = "./data"
+
+# Same-domain link discovery depth (0 = seeds only).
+max_depth = 3
+
+# Politeness: minimum seconds between requests to one domain
+# (robots.txt crawl-delay wins when larger). One request in flight per domain.
+per_domain_delay = 5.0
+
+# Skip pages larger than this (KiB).
+max_page_kb = 512
+
+# Rolling hourly bandwidth budget (MiB); crawling pauses when exhausted.
+hourly_bandwidth_mb = 256.0
+
+# Persist Scrapling's adaptive (selector relocation) store in the data dir.
+adaptive_store = false
+
+# Browser escalation: "off" (plain HTTP only), "auto" (escalate on anti-bot
+# blocks), "always" (start at the stealth tier). Browser tiers need
+# `scrapling install` (browser download) first.
+stealth = "auto"
+
+# Concurrent page fetches across domains.
+concurrency = 4
+
+# Log level: DEBUG, INFO, WARNING, ERROR.
+log_level = "INFO"
+
+# Hard per-fetch timeout in seconds (browser tiers can ignore their own
+# timeout — upstream issues #468/#491 — so this is enforced with wait_for).
+fetch_timeout = 30.0
+
+# Seconds to wait for a relay OK ack before retrying/backing off.
+publish_timeout = 15.0
+
+# Also enqueue RSS/Atom/sitemap links discovered in crawled pages.
+rss_discovery = true
