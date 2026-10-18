@@ -1,0 +1,7 @@
+# sip01-scrapling-node dependencies (stdlib-first: only these two).
+# scrapling is pre-1.0 — pin exactly. [fetchers] pulls curl_cffi (+ browser
+# stacks; browsers themselves need `scrapling install`, see Dockerfile).
+scrapling[fetchers]==0.4.15
+websockets>=12,<16
+# Python >= 3.11 has tomllib built in; uncomment for 3.10:
+# tomli>=2.0; python_version < "3.11"
