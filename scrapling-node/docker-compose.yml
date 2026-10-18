@@ -1,18 +1,1 @@
-# Optional convenience wrapper — the plain Dockerfile works on its own.
-services:
-  sip01-node:
-    build: .
-    image: sip01-scrapling-node:latest
-    container_name: sip01-scrapling-node
-    restart: unless-stopped
-    env_file:
-      - .env          # SIP01_NSEC=nsec1... (never commit this file)
-    environment:
-      SIP01_DATA_DIR: /data
-    volumes:
-      - node-data:/data   # sqlite queue/outbox, adaptive store, indexer key
-    # command override example:
-    # command: ["python", "-m", "sip01_node", "--config", "config.toml", "--seed", "https://example.com"]
-
-volumes:
-  node-data:
+COMPOSE
