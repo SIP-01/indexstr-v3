@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  🔴 <b>Live:</b> <a href="https://indexstr-v3-vert.vercel.app">indexstr-v3-vert.vercel.app</a>
+  🔴 <b>Live:</b> <a href="https://indexstr-v3.vercel.app">indexstr-v3.vercel.app</a>
 </p>
 
 ---
