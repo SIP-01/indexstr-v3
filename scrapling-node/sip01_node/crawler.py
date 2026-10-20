@@ -92,6 +92,20 @@ class CrawlQueue:
         self.db.execute("UPDATE queue SET status = 'pending' WHERE status = 'inflight'")
         self.db.commit()
 
+    def add(self, url: str, depth: int) -> bool:
+        """Enqueue a URL (normalized). Returns True if it was new."""
+        normalized = sip01.normalize_index_url(url)
+        if normalized is None:
+            return False
+        now = int(time.time())
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO queue (url, depth, status, next_try, added_at)"
+            " VALUES (?, ?, 'pending', ?, ?)",
+            (normalized, depth, now, now),
+        )
+        self.db.commit()
+        return cur.rowcount > 0
+
     def reclaim_stale_inflight(self) -> int:
         """Return long-running inflight claims to pending. Returns count reclaimed."""
         now = int(time.time())

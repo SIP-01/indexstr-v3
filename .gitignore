@@ -3,3 +3,8 @@ dist/
 .tsbuildinfo
 .eslintcache
 *.log
+
+# Secrets
+.env
+.env.*
+!.env.example
