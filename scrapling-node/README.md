@@ -53,6 +53,10 @@ SIP01_NSEC=nsec1... python -m sip01_node --config config.toml
 If `SIP01_NSEC` is unset the node generates an indexer key on first run and
 persists it in `<data_dir>/indexer.key` (mode `0600`). The nsec is never logged.
 
+Note: re-running the dry-run against the same `./data` directory crawls
+nothing — the 24h freshness cache suppresses recrawl. Delete `./data` to
+start fresh.
+
 **docker**:
 
 ```bash
@@ -71,7 +75,7 @@ TOML file (`--config`) with env overrides (`SIP01_<OPTION_UPPER>`;
 |---|---|---|
 | `seeds` | `[]` | seed URLs (repeatable `--seed`) |
 | `relays` | v3 default set | relay fan-out list |
-| `source` | `crawlstr/v3` | source tag; `indexstr/v3` adds heartbeat + intake flags |
+| `source` | `indexstr/v3` | source tag; enables kind-16919 heartbeat + intake flags |
 | `data_dir` | `./data` | sqlite queue/outbox, adaptive store, key file |
 | `max_depth` | `3` | same-domain link discovery depth |
 | `per_domain_delay` | `5.0` | politeness pacing (robots crawl-delay wins) |
@@ -88,7 +92,7 @@ TOML file (`--config`) with env overrides (`SIP01_<OPTION_UPPER>`;
 ## CLI
 
 ```
-python -m sip01_node [--config config.toml] [--source crawlstr/v3]
+python -m sip01_node [--config config.toml] [--source indexstr/v3]
     [--seed URL ...] [--once] [--dry-run] [--selftest]
 ```
 
@@ -114,7 +118,8 @@ python -m sip01_node [--config config.toml] [--source crawlstr/v3]
 ## Tests
 
 ```bash
-python -m pytest tests/        # unit + integration (integration skips offline)
+pip install -r requirements-dev.txt   # pytest
+python -m pytest tests/               # unit + integration (integration skips offline)
 ```
 
 ## License
