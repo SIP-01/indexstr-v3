@@ -34,8 +34,10 @@ Code lives at:
 
 ## Install
 
-Prereqs: Python ≥ 3.10 (3.12 recommended) OR Docker. ~1 GB disk if browser
-tiers are wanted, much less without.
+Prereqs: Python ≥ 3.10 (3.12 recommended) OR Docker. Disk: `scrapling[fetchers]`
+pulls ~110 MB of wheels (patchright/playwright packages) even without browser
+binaries; `scrapling install` adds ~1 GB of browsers on top. On slow links,
+retry pip if a wheel download stalls.
 
 **Docker (preferred for servers/Umbrel):**
 
@@ -63,10 +65,26 @@ heartbeat (kind 16919) + intake flags the same way the config loader does.
 
 ## Verify (mandatory ritual)
 
-Run `scripts/verify_install.sh <path-to-scrapling-node>` — it checks, in order:
-Python version → selftest (spec §13 vectors) → dry-run crawl of
-https://example.com producing `d = widx:0f115db062b7c0dd030b16878c99dea5` →
-key-file perms → nothing published. All green = safe to start.
+With the node's venv activated (the script calls bare `python3`):
+
+```bash
+bash scripts/verify_install.sh <path-to-scrapling-node>
+```
+
+The script ships with this skill at `scripts/verify_install.sh` and is also
+mirrored into both node repos at `.agents/skills/sip01-node/scripts/`. Invoke
+it with `bash` — do not rely on an exec bit. It runs against isolated
+throwaway data dirs, so re-runs are safe and the node's real `./data` is
+never touched.
+
+Checks, in order: Python ≥ 3.10 → package imports → scrapling pin → selftest
+(spec §13 vectors) → dry-run crawl of https://example.com producing
+`d = widx:0f115db062b7c0dd030b16878c99dea5` → real key generation with mode
+0600 → outbox retry path via a dead loopback relay (signed, **nothing
+published**) → secret never appears in logs. All green = safe to start.
+
+Needs live HTTPS to example.com; on offline/air-gapped hosts run with
+`VERIFY_SKIP_NETWORK=1` (checks 5–6 skip — tell the user they were skipped).
 
 Equivalent manual commands:
 
