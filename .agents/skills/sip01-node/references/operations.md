@@ -71,6 +71,7 @@ counts first.
 | `ModuleNotFoundError: scrapling` | deps not installed in the active env | activate the venv; `pip install -r requirements.txt` |
 | Browser tiers raise `TierUnavailableError` | browsers not installed | `scrapling install` (needs ~1 GB), or set `stealth = "off"` |
 | pip crawl fails on `patchright` download | slow/filtered network | retry; tier-1 HTTP works without browsers meanwhile |
+| Big wheels (`patchright`/`playwright`) stall, time out, or fail hash checks | degraded route to files.pythonhosted.org | switch to a regional PyPI mirror, e.g. `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` (observed 50× faster + clean hashes on CN-adjacent networks) |
 | `0/N relays acked` persistently | relays down or key rate-limited | check logs per relay; outbox retains events and retries; verify relays with a NIP-11 probe |
 | Crawl pauses with "bandwidth budget exhausted" | `hourly_bandwidth_mb` hit | intended; raise the budget or wait for the window to roll |
 | Pages skipped as thin | JS-only site, tier-1 fetch | set `stealth = "auto"`/`"always"` + `scrapling install` |
