@@ -9,7 +9,7 @@
  * divergence is the `published > 0` clamp (see webIndex.ts and README.md).
  */
 
-/* ---- webIndex.ts: kind 39697 build / parse / verify (spec v1.2) ---- */
+/* ---- webIndex.ts: kind 39697 build / parse / verify (spec v1.3) ---- */
 export {
   WEB_INDEX_KIND,
   WEB_INDEX_SCHEMA_VERSION,

@@ -1,6 +1,8 @@
 /**
- * Search Index Protocol (SIP-01) v1.2 — reference implementation.
- * (v1.2 = NIP-reference audit only; the wire format is unchanged from v1.)
+ * Search Index Protocol (SIP-01) v1.3 — reference implementation.
+ * (v1.2 = NIP-reference audit; v1.3 = optional capability-discovery tags
+ * `role`/`proto` + the `a` pointer to a kind 39698 announcement. The wire
+ * format is unchanged from v1.)
  * Canonical spec: https://github.com/NostrDanish/SIP-01 (local copy: docs/SIP-01.md)
  *
  * One addressable event (kind 39697) per indexed web document:
@@ -18,7 +20,8 @@
  * breaks. This module is covered by the spec §13 test vectors
  * (see webIndex.test.ts).
  *
- * VENDORED into @sip01/protocol from sip-01-core@live (cloned 2026-09-20).
+ * VENDORED into @sip01/protocol from sip-01-core@live (cloned 2026-09-20;
+ * synced with upstream's spec-v1.3 `role`/`proto` additions 2026-11-08).
  * Byte-verbatim EXCEPT one documented divergence (upstream PR candidate):
  * the `published` tag is clamped to strictly positive unix seconds
  * (DIVERGENCE note at the build site below). The clamp can only *remove*
@@ -66,7 +69,7 @@ const LANGUAGE_RE = /^[a-z]{2}$/;
 const COUNTRY_RE = /^[A-Z]{2}$/;
 
 /** Registered keyword-shaped extension tags (spec §9.2). */
-const KEYWORD_EXTENSIONS = ['type', 'platform', 'category', 'network'] as const;
+const KEYWORD_EXTENSIONS = ['type', 'platform', 'category', 'network', 'role', 'proto'] as const;
 
 /** All registered extension tags this module knows how to build/parse. */
 const EXTENSION_TAGS = [...KEYWORD_EXTENSIONS, 'country', 'mime'] as const;
@@ -161,6 +164,13 @@ export interface IndexObservationInput {
   country?: string;
   /** Document media type, e.g. application/pdf. */
   mime?: string;
+  /**
+   * Optional service-document role (spec v1.3): agent, tool, model, api,
+   * compute, dataset, gateway. Omitted from ordinary web observations.
+   */
+  role?: string;
+  /** Optional transport keyword: mcp, http, contextvm, nostr, a2a. */
+  proto?: string;
 }
 
 export interface UnsignedIndexEvent {
