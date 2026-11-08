@@ -14,7 +14,7 @@ CLI:
   python3 sip01.py build '<url>' '<title>' [--description D] [--topic T]...
         [--lang en] [--published UNIX] [--source name/1] [--image URL]
         [--type repository] [--platform github] [--category C] [--network N]
-        [--country DE] [--mime application/pdf]
+        [--role tool] [--proto mcp] [--country DE] [--mime application/pdf]
       → prints the unsigned kind-39697 event JSON (pipe into a Nostr signer,
         e.g. nostr_key.py sign from the `nostr` skill)
   python3 sip01.py validate '<event-json>'           # or pipe JSON via stdin
@@ -53,7 +53,8 @@ MIME_RE = re.compile(
 
 KNOWN_TAGS = {
     "d", "u", "v", "alt", "t", "l", "x", "published", "source",
-    "type", "platform", "category", "network", "country", "mime",
+    "type", "platform", "category", "network", "role", "proto",
+    "country", "mime",
 }
 
 
@@ -326,7 +327,7 @@ def validate_event(ev):
     source = _tag_value(ev, "source")
     if source is not None and len(source) > MAX_SOURCE_LEN:
         errors.append("source tag exceeds %d characters" % MAX_SOURCE_LEN)
-    for name in ("type", "platform", "category", "network"):
+    for name in ("type", "platform", "category", "network", "role", "proto"):
         v = _tag_value(ev, name)
         if v is not None and not EXTENSION_VALUE_RE.match(v):
             errors.append("%s tag is not a valid keyword" % name)
@@ -405,7 +406,8 @@ def main():
         flag_map = {"--description": "description", "--lang": "lang", "--published": "published",
                     "--source": "source", "--image": "image"}
         ext_flags = {"--type": "type", "--platform": "platform", "--category": "category",
-                     "--network": "network", "--country": "country", "--mime": "mime"}
+                     "--network": "network", "--role": "role", "--proto": "proto",
+                     "--country": "country", "--mime": "mime"}
         while i < len(args):
             a = args[i]
             if a == "--topic":

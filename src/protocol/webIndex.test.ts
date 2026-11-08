@@ -75,7 +75,7 @@ describe('documentId / contentHash', () => {
 });
 
 /**
- * SIP-01 spec §13 test vectors (v1.2 — unchanged since v1) — the
+ * SIP-01 spec §13 test vectors (v1.3 — unchanged since v1) — the
  * byte-compatibility contract.
  * Every implementation in the ecosystem (this engine, Crawlstr, the UNCAGED
  * Index Relay) MUST reproduce these exact values.
@@ -150,6 +150,10 @@ describe('buildIndexEvent', () => {
     expect(tags.find(([n]) => n === 'l')?.[1]).toBe('en');
     expect(tags.find(([n]) => n === 'alt')?.[1]).toContain('Example Page');
 
+    // No capability-discovery tags unless a caller supplies them (spec v1.3).
+    expect(tags.find(([n]) => n === 'role')).toBeUndefined();
+    expect(tags.find(([n]) => n === 'proto')).toBeUndefined();
+
     // Tags deduped + normalized.
     const tTags = tags.filter(([n]) => n === 't').map(([, v]) => v);
     expect(tTags).toEqual(['nostr', 'privacy-tools']);
@@ -210,6 +214,8 @@ describe('buildIndexEvent', () => {
       type: 'Repository',
       platform: 'github',
       network: 'clearnet',
+      role: 'Tool',
+      proto: 'mcp',
       country: 'de',
       mime: 'APPLICATION/PDF',
     });
@@ -217,6 +223,8 @@ describe('buildIndexEvent', () => {
     expect(tags).toContainEqual(['type', 'repository']);
     expect(tags).toContainEqual(['platform', 'github']);
     expect(tags).toContainEqual(['network', 'clearnet']);
+    expect(tags).toContainEqual(['role', 'tool']);
+    expect(tags).toContainEqual(['proto', 'mcp']);
     expect(tags).toContainEqual(['country', 'DE']);
     expect(tags).toContainEqual(['mime', 'application/pdf']);
   });
@@ -226,11 +234,13 @@ describe('buildIndexEvent', () => {
       url: 'https://example.com/',
       title: 'T',
       type: 'not a keyword!',
+      role: 'not a keyword!',
       country: 'DEN',
       mime: 'not-a-mime',
     });
     expect(event).not.toBeNull();
     expect(event!.tags.find(([n]) => n === 'type')).toBeUndefined();
+    expect(event!.tags.find(([n]) => n === 'role')).toBeUndefined();
     expect(event!.tags.find(([n]) => n === 'country')).toBeUndefined();
     expect(event!.tags.find(([n]) => n === 'mime')).toBeUndefined();
   });
@@ -332,6 +342,8 @@ describe('parseIndexEvent', () => {
       type: 'repository',
       platform: 'github',
       network: 'clearnet',
+      role: 'tool',
+      proto: 'mcp',
     }))!;
     const event = finalizeEvent(
       { ...template, created_at: 1754650000 },
@@ -339,7 +351,13 @@ describe('parseIndexEvent', () => {
     );
     const obs = parseIndexEvent(event);
     expect(obs).not.toBeNull();
-    expect(obs!.extensions).toEqual({ type: 'repository', platform: 'github', network: 'clearnet' });
+    expect(obs!.extensions).toEqual({
+      type: 'repository',
+      platform: 'github',
+      network: 'clearnet',
+      role: 'tool',
+      proto: 'mcp',
+    });
   });
 });
 

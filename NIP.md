@@ -3,12 +3,19 @@
 Indexstr is a **browser-based web indexer** (a [Crawlstr](https://github.com/NostrDanish/Crwalstr) fork)
 that ships with **curated URL collections** and publishes to the **shared SIP-01
 (Search Index Protocol) index** on Nostr. It implements the **canonical SIP-01
-specification v1.2** — [github.com/NostrDanish/SIP-01](https://github.com/NostrDanish/SIP-01)
+specification v1.3** — [github.com/NostrDanish/SIP-01](https://github.com/NostrDanish/SIP-01)
 (`public/spec/SIP-01.md`) — byte-compatibly with
 [0xSearchstr](https://github.com/NostrDanish/0xSearchstr),
 [0xPresearchstr](https://github.com/NostrDanish/0xPresearchstr),
 [UNCAGED-ENGINE](https://github.com/NostrDanish/UNCAGED-ENGINE), and the
 [UNCAGED Index Relay](https://github.com/NostrDanish/UNCAGED-Index-Relay).
+
+> **v1.3 note:** the current revision added the optional capability-discovery
+> extension tags `role`/`proto` (§9.2, ORBSTR) and allows a NIP-01 `a` tag
+> pointing at a companion kind 39698 capability announcement (§9.4/§21). The
+> wire format is unchanged — schema `v` stays `"1"`, and every existing event
+> remains valid. Indexstr's builder accepts `role`/`proto` and emits them only
+> when a caller supplies them; ordinary page observations omit them.
 
 ## Protocol Compatibility
 
@@ -151,6 +158,8 @@ public metadata."*
 | `network` | always `clearnet` | A browser crawler can only reach the clearnet |
 | `type` | `page` / `article` / `blog` / `news` / `docs` / `wiki` / `forum` / `repository` / `product` / `video` / `audio` / `homepage` | Derived document type (see Enrichment) |
 | `platform` | e.g. `github`, `youtube`, `wikipedia` | Emitted for well-known hosts only |
+| `role` | e.g. `tool`, `agent`, `model` | Optional (spec v1.3) — role of a service document; omitted from ordinary page observations |
+| `proto` | e.g. `mcp`, `http`, `contextvm` | Optional (spec v1.3) — transport keyword; omitted from ordinary page observations |
 
 ## Enrichment (derived `t` topics + `type`)
 
@@ -321,8 +330,8 @@ nothing, and the node loses no work.
 
 ## References
 
-- **Canonical spec (v1.2):** [NostrDanish/SIP-01](https://github.com/NostrDanish/SIP-01) — `public/spec/SIP-01.md`
-  (v1.2 was a NIP-reference audit; the wire format is unchanged and `v` stays `"1"`)
+- **Canonical spec (v1.3):** [NostrDanish/SIP-01](https://github.com/NostrDanish/SIP-01) — `public/spec/SIP-01.md`
+  (v1.2 was a NIP-reference audit; v1.3 added the optional `role`/`proto` capability-discovery tags; the wire format is unchanged and `v` stays `"1"`)
 - **Implementation guide:** [SIP-01/docs/IMPLEMENTATION-GUIDE.md](https://github.com/NostrDanish/SIP-01/blob/main/docs/IMPLEMENTATION-GUIDE.md)
 - **Reference port:** [SIP-01/src/lib/sip01-utils.ts](https://github.com/NostrDanish/SIP-01/blob/main/src/lib/sip01-utils.ts)
 - **0xSearchstr NIP.md:** [legacy schemas, community submissions, Nostra interop](https://github.com/NostrDanish/0xSearchstr/blob/main/NIP.md)

@@ -42,6 +42,28 @@ def test_build_validate_roundtrip():
     assert result["valid"], result["errors"]
 
 
+def test_capability_discovery_tags_roundtrip():
+    """Spec v1.3: role/proto build, validate clean, and are known tags."""
+    ev = sip01.build_event(
+        "https://example.com/mcp",
+        "Example MCP server",
+        extensions={"role": "tool", "proto": "mcp"},
+    )
+    tags = {t[0]: t[1] for t in ev["tags"]}
+    assert tags["role"] == "tool"
+    assert tags["proto"] == "mcp"
+    result = sip01.validate_event(ev)
+    assert result["valid"], result["errors"]
+    assert not any("unknown extension" in n for n in result["notices"])
+
+
+def test_validate_rejects_bad_role_shape():
+    ev = sip01.build_event("https://example.com/", "T", extensions={"role": "not a keyword!"})
+    result = sip01.validate_event(ev)
+    assert not result["valid"]
+    assert any("role tag" in e for e in result["errors"])
+
+
 def test_signed_event_roundtrip():
     """build → sign → verify signature → validate must all pass."""
     seckey = nostr.generate_seckey()
