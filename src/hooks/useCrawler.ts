@@ -13,7 +13,7 @@
  *      fetch wire + proxy template (core owns the SSRF guard, the app owns
  *      the wire), IndexedDB storage by default, default clock;
  *   3. maps node events onto React state and exposes the v1 hook surface
- *      (start/stop/seedUrl/seedCollection/clearAll/settings/…) so the
+ *      (start/stop/seedUrl/indexList/clearAll/settings/…) so the
  *      dashboard is unchanged;
  *   4. applies the host-side crawl constraints (WiFi-only / charging-only /
  *      battery / slow network) as start/stop intent — a host policy the
@@ -41,6 +41,12 @@ import {
 } from '@sip01/crawler-core';
 import { WEB_INDEX_KIND, getIndexerSecretKey } from '@sip01/protocol';
 import { getIndexPublishRelays, getIndexReadRelays } from '@/lib/indexRelays';
+import {
+  publishCapabilityEvent as publishCapabilityAnnouncement,
+  withdrawCapabilityListing,
+  type CapabilityPublishResult,
+} from '@/lib/capabilityPublish';
+import type { CapabilityInput } from '@/protocol/capability';
 import {
   loadCrawlerSettings,
   saveCrawlerSettings,
@@ -308,27 +314,62 @@ export function useCrawler() {
   }, []);
 
   /**
-   * Seed a curated collection through the core's admission path. Chunked so
-   * the UI gets progress; core's admit() dedups against already-crawled
-   * (incl. negative cache) and enforces the queue cap. Returns jobs added.
+   * Index a user link list (or service submission) through the core's
+   * admission path. Chunked so the UI gets progress; core's admit() dedups
+   * against already-crawled (incl. negative cache) and enforces the queue
+   * cap. Returns jobs added / refused.
    */
-  const seedCollection = useCallback(
-    async (urls: string[], onProgress?: (done: number, total: number) => void): Promise<number> => {
+  const indexList = useCallback(
+    async (
+      urls: string[],
+      opts: { role?: string; proto?: string; followLinks?: boolean } = {},
+      onProgress?: (done: number, total: number) => void,
+    ): Promise<{ added: number; refused: number }> => {
       const node = nodeRef.current;
-      if (!node) return 0;
-      let admitted = 0;
+      if (!node) return { added: 0, refused: urls.length };
+      let added = 0;
+      let refused = 0;
       const CHUNK = 2000;
       for (let i = 0; i < urls.length; i += CHUNK) {
-        // followLinks: false — the collection IS the crawl plan (v1
-        // behavior): index exactly these URLs, don't self-expand outward.
+        // followLinks defaults to false — the list IS the crawl plan:
+        // index exactly these URLs, don't self-expand outward.
         const result = await node.seed(urls.slice(i, i + CHUNK), {
           priority: 0.9,
-          followLinks: false,
+          followLinks: opts.followLinks ?? false,
+          ...(opts.role ? { role: opts.role } : {}),
+          ...(opts.proto ? { proto: opts.proto } : {}),
         });
-        admitted += result.admitted;
+        added += result.admitted;
+        refused += result.rejected;
         onProgress?.(Math.min(i + CHUNK, urls.length), urls.length);
       }
-      return admitted;
+      return { added, refused };
+    },
+    [],
+  );
+
+  /** Publish a kind 39698 capability announcement (ORBSTR companion). */
+  const publishCapability = useCallback(
+    async (input: CapabilityInput): Promise<CapabilityPublishResult | null> => {
+      return publishCapabilityAnnouncement(
+        input,
+        (relayUrl, event) =>
+          nostrRef.current.relay(relayUrl).event(event, { signal: AbortSignal.timeout(10_000) }),
+        getIndexPublishRelays(),
+      );
+    },
+    [],
+  );
+
+  /** Withdraw a capability announcement (addressable replacement). */
+  const withdrawCapability = useCallback(
+    async (d: string): Promise<CapabilityPublishResult | null> => {
+      return withdrawCapabilityListing(
+        d,
+        (relayUrl, event) =>
+          nostrRef.current.relay(relayUrl).event(event, { signal: AbortSignal.timeout(10_000) }),
+        getIndexPublishRelays(),
+      );
     },
     [],
   );
@@ -401,7 +442,9 @@ export function useCrawler() {
     start,
     stop,
     seedUrl,
-    seedCollection,
+    indexList,
+    publishCapability,
+    withdrawCapability,
     clearAll,
     updateSettings,
     getSettings,

@@ -67,7 +67,7 @@ import type {
 } from './types';
 import { emptyStats } from './types';
 
-/** Per-domain cap for discovered links (collections/seeds exempt). */
+/** Per-domain cap for discovered links (user lists/seeds exempt). */
 const DISCOVERY_DOMAIN_CAP = 500;
 /** How often the outbox flush retries while running. */
 const OUTBOX_FLUSH_INTERVAL_MS = 5 * 60 * 1000;
@@ -314,6 +314,9 @@ export class Engine {
       followLinks?: boolean;
       discoveredFrom?: string;
       applyTraps?: boolean;
+      /** Capability-discovery tags (spec v1.3 §9.2) — service submissions. */
+      role?: string;
+      proto?: string;
     },
   ): Promise<'queued' | 'duplicate' | 'rejected'> {
     const normalized = normalizeIndexUrl(rawUrl);
@@ -365,6 +368,8 @@ export class Engine {
       followLinks: opts.followLinks ?? true,
       discoveredFrom: opts.discoveredFrom,
       shard: urlShard(normalized),
+      ...(opts.role ? { role: opts.role } : {}),
+      ...(opts.proto ? { proto: opts.proto } : {}),
     });
     this.wake(); // event-driven dispatch: idle/blocked slots re-pick now
     return 'queued';
@@ -461,13 +466,15 @@ export class Engine {
 
   /**
    * Seed URLs through the admission path. Manual seeds self-expand
-   * (followLinks defaults to true); curated collections pass
-   * `followLinks: false` — the collection IS the crawl plan, so its URLs
+   * (followLinks defaults to true); user link lists pass
+   * `followLinks: false` — the list IS the crawl plan, so its URLs
    * are indexed exactly as listed instead of exploding outward.
+   * `role`/`proto` (spec v1.3 §9.2) tag every observation of these URLs —
+   * service submissions use them.
    */
   async seed(
     urls: string[],
-    opts?: { priority?: number; followLinks?: boolean },
+    opts?: { priority?: number; followLinks?: boolean; role?: string; proto?: string },
   ): Promise<{ admitted: number; rejected: number }> {
     let admitted = 0;
     let rejected = 0;
@@ -476,6 +483,8 @@ export class Engine {
         priority: opts?.priority ?? 1.0,
         followLinks: opts?.followLinks ?? true,
         applyTraps: false, // seeds are human-directed; traps apply to discovery
+        ...(opts?.role ? { role: opts.role } : {}),
+        ...(opts?.proto ? { proto: opts.proto } : {}),
       });
       if (result === 'queued') admitted++;
       else rejected++;
@@ -825,7 +834,11 @@ export class Engine {
     const wait = Math.max(250, Math.min(waitMs, 60_000));
     job.nextAttempt = this.config.clock() + wait;
     await this.storage.putJob(job);
-    return wait;
+    // +5ms: land the retry past the due time even when the timer fires a
+    // millisecond early (Node timers can fire ~1ms before Date.now() reaches
+    // the deadline) — otherwise the re-dispatch finds the job not-yet-due
+    // and idles a full poll interval while it sits due in the queue.
+    return wait + 5;
   }
 
   /**
@@ -1024,6 +1037,8 @@ export class Engine {
       followLinks: job.followLinks,
       shard: job.shard ?? urlShard(job.url),
       nextAttempt: freshness.recrawlDue,
+      ...(job.role ? { role: job.role } : {}),
+      ...(job.proto ? { proto: job.proto } : {}),
     });
 
     this.stats.pagesIndexed++;
@@ -1038,7 +1053,7 @@ export class Engine {
     // off the critical path"). If the page claims a canonical URL, the
     // observation is filed under THAT identity.
     this.trackPublish(
-      this.publishObservation(job.url, parsed, topics, enrichment?.docType),
+      this.publishObservation(job, parsed, topics, enrichment?.docType),
     );
 
     return parsed;
@@ -1098,11 +1113,12 @@ export class Engine {
 
   /** Build → sign → publish one observation; outbox on zero acks. */
   private async publishObservation(
-    pageUrl: string,
+    job: { url: string; role?: string; proto?: string },
     parsed: ParsedPage,
     topics: string[],
     docType?: string,
   ): Promise<void> {
+    const pageUrl = job.url;
     const indexUrl = parsed.canonical
       ? (normalizeIndexUrl(parsed.canonical) ?? pageUrl)
       : pageUrl;
@@ -1119,6 +1135,10 @@ export class Engine {
       // Extension registry (spec §9.2): a browser crawler only ever sees clearnet.
       network: 'clearnet',
       ...(platform ? { platform } : {}),
+      // Capability-discovery tags (spec v1.3 §9.2) — carried from a service
+      // submission; absent for ordinary pages.
+      ...(job.role ? { role: job.role } : {}),
+      ...(job.proto ? { proto: job.proto } : {}),
       type:
         platform === 'github' || platform === 'gitlab'
           ? 'repository'
@@ -1165,7 +1185,7 @@ export class Engine {
               { status: 'observed', at: this.config.clock() },
             );
             this.trackPublish(
-              this.publishObservation(normalized, {
+              this.publishObservation({ url: normalized }, {
                 ...parsed,
                 title: entry.title,
                 description: entry.summary ?? '',

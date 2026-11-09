@@ -22,6 +22,7 @@ import {
   Send,
   Rss,
   Map,
+  Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { IndexstrLogo } from '@/components/crawler/IndexstrLogo';
-import { CollectionsPanel } from '@/components/crawler/CollectionsPanel';
+import { ListsPanel } from '@/components/crawler/ListsPanel';
 import { RelayManager } from '@/components/crawler/RelayManager';
 import { useCrawler } from '@/hooks/useCrawler';
 import { useNetworkNodes } from '@/hooks/useNetworkNodes';
@@ -100,7 +101,9 @@ export function CrawlerDashboard() {
     start,
     stop,
     seedUrl,
-    seedCollection,
+    indexList,
+    publishCapability,
+    withdrawCapability,
     clearAll,
     updateSettings,
     probeRelay,
@@ -405,12 +408,12 @@ export function CrawlerDashboard() {
         </Card>
       </div>
 
-      {/* Tabs for Collections / Seed / History / Settings */}
-      <Tabs defaultValue="collections" className="w-full">
+      {/* Tabs for Lists / Seed / History / Settings */}
+      <Tabs defaultValue="lists" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="collections">
-            <Database className="h-4 w-4 mr-1 hidden sm:inline" />
-            Collections
+          <TabsTrigger value="lists">
+            <Link2 className="h-4 w-4 mr-1 hidden sm:inline" />
+            Lists
           </TabsTrigger>
           <TabsTrigger value="seed">Seed URLs</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -420,13 +423,16 @@ export function CrawlerDashboard() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Collections Tab — bundled curated URL packs */}
-        <TabsContent value="collections">
-          <CollectionsPanel
-            onSeed={seedCollection}
+        {/* Lists Tab — bring-your-own link lists + service submissions */}
+        <TabsContent value="lists">
+          <ListsPanel
             ready={initialized}
             isRunning={isRunning}
             onStart={start}
+            onIndexList={indexList}
+            onListsChanged={() => {}}
+            onPublishCapability={publishCapability}
+            onWithdrawCapability={withdrawCapability}
           />
         </TabsContent>
 

@@ -19,6 +19,8 @@ This project is a Nostr client application built with React 19.x, TailwindCSS 4.
 - `/src/hooks/` — custom hooks. Discover the full set with `ls src/hooks/`. Key ones: `useNostr`, `useAuthor`, `useCurrentUser`, `useNostrPublish`, `useUploadFile`, `useAppContext`, `useTheme`, `useToast`, `useLoggedInAccounts`, `useLoginActions`, `useIsMobile`.
 - `/src/pages/` — page components wired into React Router (`Index`, `NotFound`, `NIP19Page`).
 - `/src/lib/` — utility functions and shared logic.
+- `/src/crawler/` — the SIP-01 crawler core (see **SIP-01 Crawler Architecture** below).
+- `/src/protocol/` — the SIP-01 wire contract (kind 39697 + 39698 builders/parsers).
 - `/src/contexts/` — React context providers (`AppContext`).
 - `/src/test/` — testing utilities including the `TestApp` wrapper.
 - `/public/` — static assets.
@@ -26,6 +28,24 @@ This project is a Nostr client application built with React 19.x, TailwindCSS 4.
 - `AppRouter.tsx` — React Router configuration. The catch-all `/:nip19` route handles all NIP-19 identifiers (see the `nip19-routing` skill).
 
 **Always read an existing file before modifying it.** Never write over `App.tsx`, `AppRouter.tsx`, or `NostrProvider` without first reading their contents.
+
+## SIP-01 Crawler Architecture
+
+The crawler is the app's core — it lives in `src/crawler/` and is independent of the Nostr client scaffolding.
+
+- `index.ts` — the `@sip01/crawler-core` public surface: `createCrawler(config)` + types. Everything in `internal/` is private by design (apps cannot import `@sip01/crawler-core/internal/*`).
+- `internal/engine.ts` — the crawl loop: admission gate (`admit()` — normalize → SSRF guard → traps → dedup → queue cap), fetch, parse, hash, publish. Every enqueue source (seeds, lists, discovered links, feeds, network intake) funnels through `admit()`.
+- `internal/publisher.ts` — build (via `@sip01/protocol`) → sign → fan out with per-relay health gating; zero-ack events land in the IndexedDB outbox.
+- `internal/modules/` — intake, enrich, traps, sharding, relayprobe, heartbeat.
+- `lists.ts` — user link lists + published capability listings (IndexedDB). `parseUrlList()` handles pasted text and uploaded files; lists are device-local. The app ships **no bundled corpora**.
+- `src/protocol/` — the SIP-01 wire contract (`webIndex.ts` kind 39697, `capability.ts` kind 39698, `indexerIdentity.ts`). **Byte-compatible with upstream sip-01-core** — the single documented divergence is the `published > 0` clamp. Never change the wire format without a spec revision.
+- `src/lib/capabilityPublish.ts` — kind 39698 announcements. Fan-out is isolated from the core's relay-health accounting: a relay may policy-reject 39698 without affecting observation delivery.
+
+Invariants:
+
+- `role`/`proto` on observations are **emit-only-when-supplied** (spec v1.3 §9.2) — ordinary page observations must not gain new tags. They ride `CrawlJob` from `seed()`/`admit()` through to the publisher, including recrawl reschedules.
+- User lists and service submissions queue with `followLinks: false` — index exactly the URLs given.
+- Tests: `npm test` (tsc + eslint + vitest + build). Crawler tests use `fake-indexeddb`; `src/test/setup.ts` wires jsdom's Storage into the global scope (Node 26 ships an experimental `localStorage` global that vitest's jsdom env does not override).
 
 ## UI Components
 

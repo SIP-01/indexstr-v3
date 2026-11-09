@@ -28,6 +28,12 @@ Local filter language:
 4. Call the endpoint with its own protocol. Do not wrap the payload in a Nostr event unless the listing says `proto:nostr` or points at a NIP-90 job kind.
 5. Do not write the result back as a kind 39697 observation.
 
+## Publishing a listing (service owners)
+
+Indexstr's **Lists → Submit your service** flow indexes your service pages with
+`role`/`proto` tags and publishes the kind 39698 announcement, signed by the
+device's indexer key. Withdraw replaces the listing with `["status","withdrawn"]`.
+
 ## Do not
 
 - Treat kind 39697 content as a service schema.

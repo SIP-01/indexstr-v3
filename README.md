@@ -22,7 +22,7 @@
 
 ---
 
-Crawlstr = *"let your browser crawl the web."* Indexstr = *"turn the community into a distributed indexing network."* Load a curated collection, press **Start Crawling**, and every page becomes a **kind 39697 web index observation** on the shared [SIP-01](https://github.com/NostrDanish/SIP-01) index — instantly searchable by [0xSearchstr](https://0xsearchstr.shakespeare.wtf), [0xPresearchstr](https://presearchstr.shakespeare.wtf), [UNCAGED](https://uncaged.shakespeare.wtf), and any SIP-01 client.
+Crawlstr = *"let your browser crawl the web."* Indexstr = *"turn the community into a distributed indexing network."* Paste or upload your own link list, press **Start Crawling**, and every page becomes a **kind 39697 web index observation** on the shared [SIP-01](https://github.com/NostrDanish/SIP-01) index — instantly searchable by [0xSearchstr](https://0xsearchstr.shakespeare.wtf), [0xPresearchstr](https://presearchstr.shakespeare.wtf), [UNCAGED](https://uncaged.shakespeare.wtf), and any SIP-01 client.
 
 ## Two runtimes, one network
 
@@ -32,7 +32,7 @@ Crawlstr = *"let your browser crawl the web."* Indexstr = *"turn the community i
 | Fetch stack | `fetch` + CORS proxy | [Scrapling](https://github.com/D4Vinci/Scrapling): TLS-impersonated HTTP → headless browser → stealth |
 | JS rendering | ✗ | ✓ (Dynamic / Stealthy tiers) |
 | Cloudflare-blocked sites | ✗ | ✓ (best effort, `solve_cloudflare`) |
-| Seeds | 8 bundled SQLite collections (~76 MB) | any seeds, any scale |
+| Seeds | your own link lists (paste/upload) | any seeds, any scale |
 | Queue / state | IndexedDB | SQLite (WAL) |
 | Publishes | kind 39697 `source=indexstr/v3` + kind 16919 heartbeat | kind 39697 `source=indexstr/v3+scrapling` + heartbeat |
 
@@ -48,7 +48,7 @@ npm install && npm run dev     # http://localhost:8080
 npm test                       # tsc + eslint + 500+ vitest tests + build
 ```
 
-Open → **Collections** tab → load a pack → **Start Crawling**. Deploys anywhere static (Vite preset, output `dist/`).
+Open → **Lists** tab → paste or upload links → **Index now** → **Start Crawling**. Deploys anywhere static (Vite preset, output `dist/`).
 
 **Headless node** — see [`scrapling-node/`](scrapling-node/README.md):
 
@@ -61,7 +61,7 @@ docker compose up -d           # or: pip install -r requirements.txt && python -
 
 ```mermaid
 flowchart TD
-    S[Curated collections<br>8 SQLite packs, Blossom-mirrored] --> Q[Sharded work queue<br>256 deterministic shards]
+    S[Your link lists<br>paste or upload, device-local] --> Q[Sharded work queue<br>256 deterministic shards]
     M[Manual seeds] --> Q
     I[Network intake<br>other indexers' observations] --> Q
     Q --> N1[Browser node<br>shard C4]
@@ -82,18 +82,13 @@ flowchart TD
 - **Freshness scheduling** — 24h → doubling → 30d recrawl; unchanged pages republish the same `d`/`x` as the network's liveness signal.
 - **Abuse guards** — crawl-trap heuristics, per-domain caps, per-indexer intake caps (Sybil guard), SSRF guard on every path, robots.txt.
 
-## The collections
+## Your link lists (and services)
 
-Eight curated link packs ship in-app (`public/collections/`, parsed in-browser by a purpose-built SQLite reader, mirrored as SHA-256-verified [Blossom](https://github.com/hzrd149/blossom) blobs):
+The app ships **no bundled link packs** — the corpus is yours.
 
-| Pack | Size | | Pack | Size |
-|---|---|---|---|---|
-| Top Sites | ~26 MB | | Books | ~1.3 MB |
-| Awesome Lists | ~20 MB | | Movies | ~1.2 MB |
-| RSS Feeds | ~19 MB | | Memes | ~1 MB |
-| Music | ~10 MB | | Video Games | ~0.9 MB |
-
-Collection URLs are indexed **exactly as listed** (`followLinks: false`) — the collection IS the crawl plan.
+- **Lists tab** — paste links or upload a file (.txt, .csv, .json — any text with URLs in it). Lists are saved on this device (IndexedDB), normalized and deduped per SIP-01 §7, and indexed only when you press **Index now**. The list *is* the crawl plan: `followLinks: false` — exactly the URLs you gave are indexed.
+- **Submit your service** — publishes a kind 39698 capability announcement (ORBSTR) signed by your device indexer key, and queues your service pages as observations carrying `role`/`proto` tags (spec v1.3 §9.2). Withdraw replaces the listing with a "withdrawn" status.
+- **Network intake** still feeds the queue from other indexers' observations — your lists are the opt-in bulk path; intake is the network's.
 
 ## What it publishes
 
@@ -133,7 +128,7 @@ SIP-01 index relays first, then NIP-50 search, then broad propagation — custom
 | | v2 | v3 (this) |
 |---|---|---|
 | Repo shape | pnpm monorepo — kept breaking Vercel | **single self-contained app**, protocol + crawler-core vendored in-tree |
-| Collection DBs | "MISSING BINARIES" — copied by hand | **all 8 committed** in `public/collections/` |
+| Seed source | "MISSING BINARIES" — copied by hand | **user link lists** (paste/upload) — no bundled corpora |
 | Retry backoff | cap before jitter (12.5min "10min" ceiling) | cap **after** jitter — ceiling is hard |
 | Stop handling | `sleep()` could hang | already-aborted signals resolve instantly |
 | Heartbeat version | `v:"1"` even for v2 | `v:"3"` + `source=indexstr/v3` |
@@ -162,7 +157,7 @@ Source tags: v1 `indexstr/1` · v2 `indexstr/v2` · v3 `indexstr/v3` — all val
 | **Indexstr v3** (this) | Distributed indexing network → SIP-01 publisher |
 | [Crawlstr v3](https://github.com/SIP-01/Crawlstr-v3) | Lightweight browser scout |
 | [SIP-01](https://github.com/NostrDanish/SIP-01) | Canonical spec + explorer |
-| [ORBSTR](https://github.com/SIP-01/Orbstr) | Agent/tool directory — kind 39698 capability announcements; observations may carry `role`/`proto`/`a` (spec v1.3) |
+| [ORBSTR](https://github.com/SIP-01/Orbstr) | Agent/tool directory — kind 39698 capability announcements (Indexstr publishes these for submitted services); observations may carry `role`/`proto`/`a` (spec v1.3) |
 | [0xSearchstr](https://github.com/NostrDanish/0xSearchstr) · [0xPresearchstr](https://github.com/NostrDanish/0xPresearchstr) · [UNCAGED](https://github.com/NostrDanish/UNCAGED-ENGINE) | Search engines → SIP-01 readers |
 
 **Crawlstr finds. Indexstr maintains. Nostr distributes. Searchstr searches.**
