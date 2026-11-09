@@ -30,6 +30,38 @@ export type {
   IndexObservation,
 } from './webIndex';
 
+/* ---- capability.ts: ORBSTR kind 39698 announcements (spec v1.3 §21) ---- */
+export {
+  CAPABILITY_KIND,
+  CAPABILITY_SCHEMA,
+  HANDLER_KIND,
+  ROLES,
+  PROTOS,
+  PRICES,
+  isRole,
+  isProto,
+  isPrice,
+  parseQuery,
+  endpointAllowed,
+  slugify,
+  buildCapabilityEvent,
+  withdrawnEvent,
+  parseCapabilityEvent,
+  listingKey,
+  matches,
+  capabilityPointers,
+} from './capability';
+export type {
+  Role,
+  Proto,
+  Price,
+  ListingSource,
+  CapabilityInput,
+  Capability,
+  UnsignedEvent,
+  QueryParts,
+} from './capability';
+
 /* ---- indexerIdentity.ts: anonymous indexing identity (spec §14) ---- */
 export {
   getIndexerIdentity,

@@ -194,7 +194,7 @@ export function createIdbStorage(dbName: string, options: IdbStorageOptions = {}
     },
 
     /** Bulk-insert jobs in chunked (2k) transactions — seeding a curated
-     *  collection can mean tens of thousands of URLs at once. */
+     *  list can mean tens of thousands of URLs at once. */
     async putJobs(jobs) {
       const database = await db();
       const CHUNK = 2000;

@@ -7,7 +7,7 @@
  * Every normalized URL maps to exactly one of 256 shards (0x00–0xff).
  * Every node has a *home shard* derived from its indexer pubkey. A node
  * prefers work from its home shard, so a hundred nodes loading the same
- * collection naturally split it instead of all crawling the same URLs.
+ * list naturally split it instead of all crawling the same URLs.
  *
  * No coordinator, no registration, no consensus: two nodes with the same
  * seed set compute the same assignment locally, and nodes that disappear

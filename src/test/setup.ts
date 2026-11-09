@@ -54,3 +54,22 @@ global.ResizeObserver = vi.fn().mockImplementation((_callback) => ({
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }));
+
+// Node 26 ships an experimental `localStorage`/`sessionStorage` global that is
+// `undefined` unless the process runs with --localstorage-file. Vitest's jsdom
+// environment skips copying jsdom's real Storage objects over those existing
+// Node globals, so tests would otherwise see `undefined` and every
+// storage-backed module (settings, queue history, scout history) would fail.
+// Wire jsdom's real Storage through.
+const jsdomWindow = (globalThis as unknown as { jsdom?: { window: Window } }).jsdom?.window;
+if (jsdomWindow) {
+  for (const key of ['localStorage', 'sessionStorage'] as const) {
+    if (typeof globalThis[key] === 'undefined' && jsdomWindow[key]) {
+      Object.defineProperty(globalThis, key, {
+        value: jsdomWindow[key],
+        configurable: true,
+        writable: true,
+      });
+    }
+  }
+}

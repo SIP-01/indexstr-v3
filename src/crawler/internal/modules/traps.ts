@@ -3,7 +3,7 @@
  *
  * At network scale the queue must defend itself: calendar generators,
  * session-id URLs, endless paginators and internal search pages create
- * infinite URL space that would eat the entire crawl budget. Collections
+ * infinite URL space that would eat the entire crawl budget. User lists
  * are curated so they bypass this; guards apply to *discovered* URLs
  * (link following + network intake).
  *
@@ -64,7 +64,7 @@ export function isLikelyCrawlTrap(normalizedUrl: string): boolean {
 
 /**
  * Per-domain guard against one host flooding the queue through discovery.
- * Collections are exempt (they are the curated plan).
+ * User lists are exempt (they are the explicit plan).
  */
 export class DomainIntakeGuard {
   private counts = new Map<string, number>();

@@ -16,9 +16,13 @@ export interface CrawlJob {
   nextAttempt?: number;
   /**
    * Set to false to index only this exact URL without following its links.
-   * Curated collections / network-intake URLs use this.
+   * User link lists / network-intake URLs use this.
    */
   followLinks?: boolean;
+  /** Capability-discovery tags (spec v1.3 §9.2) carried from a service
+   *  submission — observations of this URL are emitted with them. */
+  role?: string;
+  proto?: string;
   /**
    * Deterministic crawl-space shard (0–255, see sharding.ts). Assigned at
    * enqueue time; the scheduler prefers the node's home shard when the

@@ -9,7 +9,7 @@ import { LoginArea } from '@/components/auth/LoginArea';
 const Index = () => {
   useSeoMeta({
     title: 'Indexstr — The Web, Pre-Indexed on Nostr',
-    description: 'A decentralized browser crawler that ships with curated URL collections. Turn your browser into a voluntary crawl node feeding the shared SIP-01 search index on Nostr.',
+    description: 'A decentralized browser crawler with bring-your-own link lists. Turn your browser into a voluntary crawl node feeding the shared SIP-01 search index on Nostr.',
   });
 
   return (
@@ -21,7 +21,7 @@ const Index = () => {
             <IndexstrLogo className="h-8 w-8 shrink-0 rounded-md" />
             <span className="font-bold text-lg tracking-tight">Indexstr</span>
             <span className="text-xs text-muted-foreground hidden sm:inline">
-              Curated Web Indexer
+              Distributed Web Indexer
             </span>
           </div>
           <div className="flex items-center gap-1">
@@ -50,10 +50,10 @@ const Index = () => {
             The web, pre-indexed by everyone.
           </h1>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-            Indexstr ships with curated URL collections — top sites, awesome
-            lists, feeds, music, books, movies, memes and games. Load a pack,
-            press start, and your browser indexes every page into the shared
-            SIP-01 index on Nostr.
+            Indexstr turns your browser into a node in a distributed indexing
+            network. Paste or upload your own link lists, press start, and every
+            page becomes a kind 39697 observation in the shared SIP-01 index on
+            Nostr.
           </p>
         </div>
       </section>
@@ -64,9 +64,9 @@ const Index = () => {
           <div className="flex items-center gap-3 p-4 rounded-lg border bg-card">
             <LibraryBig className="h-8 w-8 text-primary shrink-0" />
             <div>
-              <h3 className="font-semibold text-sm">8 Curated Collections</h3>
+              <h3 className="font-semibold text-sm">Bring Your Own Links</h3>
               <p className="text-xs text-muted-foreground">
-                Thousands of URLs bundled, ready to index
+                Paste or upload link lists — or submit a service for agents
               </p>
             </div>
           </div>
@@ -111,8 +111,8 @@ const Index = () => {
               {
                 step: '1',
                 icon: LibraryBig,
-                title: 'Load a Collection',
-                desc: 'Pick a curated URL pack — or seed your own URLs manually',
+                title: 'Add Your Links',
+                desc: 'Paste or upload a link list — or seed URLs manually',
               },
               {
                 step: '2',
@@ -161,11 +161,9 @@ const Index = () => {
  └───────────┬──────────────┘
              │
    ┌─────────▼─────────┐
-   │  URL COLLECTIONS  │
-   │  top · awesome ·  │
-   │  feeds · music ·  │
-   │  books · movies · │
-   │  memes · games    │
+   │  YOUR LINK LISTS  │
+   │  paste · upload · │
+   │  service pages    │
    └─────────┬─────────┘
              │
    ┌─────────▼─────────┐

@@ -1,7 +1,7 @@
 # Indexstr — Event Kinds & Protocol Reference
 
 Indexstr is a **browser-based web indexer** (a [Crawlstr](https://github.com/NostrDanish/Crwalstr) fork)
-that ships with **curated URL collections** and publishes to the **shared SIP-01
+that ships with **bring-your-own link lists** and publishes to the **shared SIP-01
 (Search Index Protocol) index** on Nostr. It implements the **canonical SIP-01
 specification v1.3** — [github.com/NostrDanish/SIP-01](https://github.com/NostrDanish/SIP-01)
 (`public/spec/SIP-01.md`) — byte-compatibly with
@@ -23,16 +23,18 @@ specification v1.3** — [github.com/NostrDanish/SIP-01](https://github.com/Nost
 |--------|------|------|--------|
 | Web Index Observation (SIP-01) | **39697** | addressable | **Written** by Indexstr |
 | Indexstr Node Heartbeat | **16919** | replaceable | **Written** by Indexstr |
+| Capability announcement (ORBSTR) | **39698** | addressable | **Written** by Indexstr (service submissions only) |
 
-Indexstr is a **pure SIP-01 publisher** for observations — it does NOT write
-community submissions (kind 30078) or query caches. Kind 16919 is an
-Indexstr-specific coordination/health event documented below.
+Indexstr publishes SIP-01 observations and, for user-submitted services,
+ORBSTR capability announcements (kind 39698). It does NOT write community
+submissions (kind 30078) or query caches. Kind 16919 is an Indexstr-specific
+coordination/health event documented below.
 
 ## Deterministic Crawl Sharding (no coordinator)
 
 Every normalized URL maps to one of **256 shards**. Every node has a **home
 shard** derived from its indexer pubkey. Nodes prefer home-shard work, so a
-hundred nodes loading the same collection split it instead of duplicating it.
+hundred nodes loading the same list split it instead of duplicating it.
 
 ```
 shard(url)  = fnv1a32_utf16(normalized_url) >> 24     // top byte → 0..255
@@ -78,14 +80,14 @@ Consumers treat heartbeats older than **1 hour** as offline.
   "tags": [
     ["v", "3"],
     ["shard", "C4"],
-    ["source", "indexstr/1"],
+    ["source", "indexstr/v3"],
     ["alt", "Indexstr node heartbeat: shard C4"]
   ]
 }
 ```
 
 **Tags:** `v` (node protocol version), `shard` (home shard, two uppercase hex
-chars), `source` (`indexstr/1`), `alt` (NIP-31 human-readable).
+chars), `source` (`indexstr/v3`), `alt` (NIP-31 human-readable).
 
 **Content** (JSON): `v`, `shard`, coarse `platform` (`mobile`/`desktop`),
 coarse `network` class, `charging`, and self-reported `stats`
@@ -127,9 +129,9 @@ public metadata."*
     ["u", "https://example.com/page"],
     ["l", "en"],
     ["x", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
-    ["v", "3"],
+    ["v", "1"],
     ["published", "1786200000"],
-    ["source", "indexstr/1"],
+    ["source", "indexstr/v3"],
     ["network", "clearnet"],
     ["type", "page"],
     ["alt", "Web index observation: Example Page"]
@@ -149,7 +151,7 @@ public metadata."*
 | `l` | – | ISO 639-1 language code (validated two-letter shape) |
 | `t` | – | 0–8 lowercase topic tags matching `^[a-z0-9][a-z0-9-]{0,99}$` |
 | `published` | – | Unix seconds — page's claimed publication time (§12.2) |
-| `source` | – | `"indexstr/1"` — identifies this software (≤ 100 chars) |
+| `source` | – | `"indexstr/v3"` — identifies this software (≤ 100 chars); v2 nodes emitted `indexstr/v2`, v1 nodes `indexstr/1`, and both remain valid |
 
 **Extension tags (spec §9.2 registry):**
 
@@ -160,6 +162,44 @@ public metadata."*
 | `platform` | e.g. `github`, `youtube`, `wikipedia` | Emitted for well-known hosts only |
 | `role` | e.g. `tool`, `agent`, `model` | Optional (spec v1.3) — role of a service document; omitted from ordinary page observations |
 | `proto` | e.g. `mcp`, `http`, `contextvm` | Optional (spec v1.3) — transport keyword; omitted from ordinary page observations |
+
+### Kind 39698 — Capability Announcement (ORBSTR companion)
+
+When a user submits their own service through the dashboard (**Lists → Submit
+your service**), Indexstr publishes a kind 39698 capability announcement so
+agents can discover the service. The same submission also queues the service's
+pages as observations **carrying the `role`/`proto` tags** (spec v1.3 §9.2).
+
+```json
+{
+  "kind": 39698,
+  "pubkey": "<device indexer pubkey, hex>",
+  "created_at": 1786250000,
+  "content": "{\"name\":\"Echo Tool\",\"summary\":\"Returns text. Free.\"}",
+  "tags": [
+    ["d", "echo-tool"],
+    ["v", "1"],
+    ["role", "tool"],
+    ["proto", "mcp"],
+    ["price", "free"],
+    ["endpoint", "https://echo.example.com/mcp"],
+    ["t", "echo"],
+    ["alt", "Capability: Echo Tool"]
+  ]
+}
+```
+
+- `d` — stable listing id (slug of the name). Addressable: republishing replaces
+  the listing; withdrawal publishes a replacement with the same `d` and
+  `["status","withdrawn"]` (the event is not deleted).
+- `role` / `proto` / `price` / `endpoint` — the discovery surface; `proto` may
+  repeat for multi-protocol services. Schema: ORBSTR `spec/CAPABILITY.md`.
+- **Fan-out is best-effort and isolated**: relays that validate kind 39697 may
+  policy-reject 39698 ("kind not allowed"); a rejection never affects that
+  relay's health for ordinary observations, and the dashboard reports the
+  delivered count.
+- Signed by the same per-device indexer key as observations — never the user's
+  personal Nostr identity.
 
 ## Enrichment (derived `t` topics + `type`)
 
@@ -204,7 +244,7 @@ over Nostr with zero coupling between implementations.
 Intake jobs: priority 0.5, `followLinks: false` (the network points at
 pages; re-verification is this node's own crawl).
 
-Abuse guards on all discovered/intake URLs (never on curated collections):
+Abuse guards on all discovered/intake URLs (never on user lists):
 
 - crawl-trap filter (session keys, param explosions, segment loops,
   counter paths, extreme depth — see `traps.ts`)
@@ -252,8 +292,8 @@ freshness signal, at zero extra index space.
 | Feature | 0xSearchstr / UNCAGED | Indexstr |
 |---------|----------------------|----------|
 | **Trigger** | Search results surfaced by providers | Active web indexing |
-| **Discovery** | Search results from external APIs | Bundled curated URL collections + manual seeds |
-| **Depth** | 1 (direct results only) | 0 for collections (exact URLs), up to 3 for manual seeds |
+| **Discovery** | Search results from external APIs | User link lists + manual seeds + network intake |
+| **Depth** | 1 (direct results only) | 0 for lists (exact URLs), up to 3 for manual seeds |
 | **Rate limiting** | N/A (API-driven) | Per-domain, configurable |
 | **robots.txt** | N/A | Respected (configurable) |
 | **Queue** | N/A | IndexedDB persistent queue |

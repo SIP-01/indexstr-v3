@@ -142,11 +142,12 @@ export interface CrawlerNode {
   /** Abort-safe stop; queue and outbox persist. */
   stop(): Promise<void>;
   /** Seed URLs through the admission path. Manual seeds self-expand
-   *  (followLinks default true); curated collections pass
-   *  `followLinks: false` — the collection IS the crawl plan. */
+   *  (followLinks default true); user link lists pass `followLinks: false` —
+   *  the list IS the crawl plan. `role`/`proto` (spec v1.3 §9.2) tag every
+   *  observation of these URLs (service submissions). */
   seed(
     urls: string[],
-    opts?: { priority?: number; followLinks?: boolean },
+    opts?: { priority?: number; followLinks?: boolean; role?: string; proto?: string },
   ): Promise<{ admitted: number; rejected: number }>;
   /** Synchronous stats snapshot (session-scoped until start() rehydrates
    *  the persisted counts). */

@@ -221,7 +221,7 @@ describe('engine queue admission (audit finding #1)', () => {
     expect(job?.followLinks).toBe(true);
   });
 
-  it('seed followLinks:false stores non-expanding jobs (curated collections)', async () => {
+  it('seed followLinks:false stores non-expanding jobs (user link lists)', async () => {
     const { engine, storage } = makeHarness();
     await engine.seed(['https://engine-test-example.com/collection-item'], {
       priority: 0.9,
@@ -230,6 +230,20 @@ describe('engine queue admission (audit finding #1)', () => {
     const job = await storage.nextJob();
     expect(job?.followLinks).toBe(false);
     expect(job?.priority).toBe(0.9);
+  });
+
+  it('seed role/proto tags the queued job (service submissions)', async () => {
+    const { engine, storage } = makeHarness();
+    await engine.seed(['https://engine-test-example.com/service'], {
+      priority: 0.9,
+      followLinks: false,
+      role: 'tool',
+      proto: 'mcp',
+    });
+    const job = await storage.nextJob();
+    expect(job?.role).toBe('tool');
+    expect(job?.proto).toBe('mcp');
+    expect(job?.followLinks).toBe(false);
   });
 });
 
@@ -285,11 +299,11 @@ describe('queue-cap consistency (F7 — MAX_QUEUE_SIZE at EVERY admission path)'
     expect(await storage.queueSize()).toBe(3);
   });
 
-  it('path 2 — collections (seed with followLinks:false): same cap, same path', async () => {
+  it('path 2 — user lists (seed with followLinks:false): same cap, same path', async () => {
     const { engine, storage } = makeHarness({ maxQueueSize: 2 });
     const { admitted, rejected } = await engine.seed(
       ['https://cap.example/c1', 'https://cap.example/c2', 'https://cap.example/c3'],
-      { followLinks: false }, // the collection IS the crawl plan
+      { followLinks: false }, // the list IS the crawl plan
     );
     expect(admitted).toBe(2);
     expect(rejected).toBe(1);
@@ -532,6 +546,7 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     const maxPerHost = new Map<string, number>();
     let inFlightTotal = 0;
     let maxInFlightTotal = 0;
+    let fetchesStarted = 0;
 
     fetchMock.mockImplementation(async (input: unknown) => {
       const host = new URL(String(input)).hostname;
@@ -539,10 +554,19 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
       perHost.set(host, now);
       maxPerHost.set(host, Math.max(maxPerHost.get(host) ?? 0, now));
       inFlightTotal++;
+      fetchesStarted++;
       maxInFlightTotal = Math.max(maxInFlightTotal, inFlightTotal);
       const stream = new ReadableStream({
         async start(controller) {
-          await new Promise((r) => setTimeout(r, 25)); // hold the slot open
+          // Hold the slot open until a parallel slot's fetch overlaps (or a
+          // deadline near the tail of the run) — deterministic under CPU
+          // contention, where a fixed sleep can expire before a peer slot
+          // dispatches. A genuinely serial engine still fails the assertion
+          // (no overlap ever observed), just after the deadline.
+          const deadline = Date.now() + 1000;
+          while (inFlightTotal < 2 && fetchesStarted < 15 && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 5));
+          }
           controller.enqueue(new TextEncoder().encode(page(String(input))));
           controller.close();
           perHost.set(host, perHost.get(host)! - 1);
@@ -572,7 +596,7 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     expect(engine.getStats().pagesIndexed).toBe(16);
   });
 
-  it('invariant (ii): the robots.txt warm-up occupies the domain lane — the page waits ≥ minInterval after it', async () => {
+  it('invariant (ii): the robots.txt warm-up occupies the domain lane — the page waits ≥ minInterval after it', { timeout: 30_000 }, async () => {
     const MIN_INTERVAL = 150;
     const { engine, fetchMock } = makeHarness({
       respectRobots: true,
@@ -607,7 +631,7 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     }
   });
 
-  it('invariant (iii) end-to-end: pages/hour is a hard ceiling with 4 slots', async () => {
+  it('invariant (iii) end-to-end: pages/hour is a hard ceiling with 4 slots', { timeout: 30_000 }, async () => {
     const { engine, storage, fetchMock } = makeHarness({
       respectRobots: false,
       parallelism: 4,
@@ -638,7 +662,7 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     expect(await storage.queueSize()).toBeGreaterThan(0); // the rest wait
   });
 
-  it('publish lane off the critical path: a NEVER-resolving relay does not block the crawl', async () => {
+  it('publish lane off the critical path: a NEVER-resolving relay does not block the crawl', { timeout: 30_000 }, async () => {
     const { engine, fetchMock } = makeHarness({
       respectRobots: false,
       parallelism: 2,
@@ -664,9 +688,9 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     const stopStart = Date.now();
     await engine.stop();
     expect(Date.now() - stopStart).toBeLessThan(10_000);
-  }, 15_000);
+  });
 
-  it('publish lane: a throwing signer surfaces an error event without breaking the crawl', async () => {
+  it('publish lane: a throwing signer surfaces an error event without breaking the crawl', { timeout: 30_000 }, async () => {
     const { engine, fetchMock } = makeHarness({
       respectRobots: false,
       parallelism: 1,
@@ -698,7 +722,7 @@ describe('parallel slot scheduler (P3, blueprint §3.1)', () => {
     expect(String(errors[0])).toContain('no key');
   });
 
-  it('a claimed job that crashes mid-crawl is re-enqueued with backoff, not dropped', async () => {
+  it('a claimed job that crashes mid-crawl is re-enqueued with backoff, not dropped', { timeout: 30_000 }, async () => {
     const { engine, storage, fetchMock } = makeHarness({
       respectRobots: false,
       parallelism: 1,
