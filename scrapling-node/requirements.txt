@@ -3,5 +3,5 @@
 # stacks; browsers themselves need `scrapling install`, see Dockerfile).
 scrapling[fetchers]==0.4.15
 websockets>=12,<16
-# Python >= 3.11 has tomllib built in; uncomment for 3.10:
-# tomli>=2.0; python_version < "3.11"
+
+# Python 3.11+ is required: sip01_node/config.py uses stdlib tomllib.
