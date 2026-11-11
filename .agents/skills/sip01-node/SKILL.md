@@ -1,115 +1,93 @@
 ---
 name: sip01-node
-description: "Install, configure, verify, and operate a SIP-01 Scrapling node — the headless Python crawler that publishes kind 39697 web index observations to the decentralized SIP-01 search index on Nostr. Use whenever asked to: set up / install / deploy a SIP-01 node, crawlstr node, or indexstr node on a server, VPS, Umbrel, Raspberry Pi, or Docker host; run a headless SIP-01 crawler; configure SIP01_NSEC or config.toml for the scrapling-node; troubleshoot a running node (zero acks, outbox growth, bandwidth pauses, stealth/browser tier issues); or verify a node install. Triggers on 'SIP-01 node', 'scrapling node', 'crawlstr node', 'indexstr node', 'kind 39697 crawler', 'headless nostr indexer'."
+description: Install, configure, verify and operate the SIP-01 Scrapling crawler node that publishes kind 39697 Web Index Observation events. Use for deployment on a VPS, server, Umbrel, Raspberry Pi or Docker host; crawl queues, outbox, relays, Scrapling tiers and node troubleshooting. Requires Python 3.11 or Docker. Do not use this skill for protocol changes to the core SIP-01 format; use the sip-01 skill.
 ---
 
-# SIP-01 Scrapling Node — setup & operation
+# SIP-01 Scrapling Node — setup and operations
 
-A headless Python crawler node for the SIP-01 protocol: it crawls the web with
-the Scrapling framework and publishes signed **kind 39697 web index
-observations** to Nostr relays, byte-compatible with the browser nodes
-(Crawlstr v3 / indexstr v3).
+## Scope and implementation sources
 
-Code lives at:
-- `github.com/SIP-01/Crawlstr-v3` → `scrapling-node/` (source tag `crawlstr/v3`)
-- `github.com/SIP-01/indexstr-v3` → `scrapling-node/` (source tag `indexstr/v3`, adds heartbeat + intake flags)
+This skill covers the headless Scrapling crawler in:
+- https://github.com/SIP-01/Crawlstr-v3/tree/main/scrapling-node (source crawlstr/v3)
+- https://github.com/SIP-01/indexstr-v3/tree/main/scrapling-node (source indexstr/v3; enables kind 16919 heartbeat and intake flags)
 
-## Non-negotiables
+The node publishes signed kind 39697 observations to configured Nostr relays. The canonical protocol remains the SIP-01 draft at https://github.com/SIP-01/SIP-01.
 
-1. **Never hand-roll protocol logic.** Event building/validation comes from the
-   vendored `sip01_node/sip01.py`. Byte-compatibility is rule zero — a
-   one-character drift in URL normalization breaks dedup against every other
-   indexer. After ANY change, run `python -m sip01_node --selftest`.
-2. **`SIP01_NSEC` is env-only.** Never write it to config.toml, never commit it,
-   never print it. If unset, the node generates an indexer key into
-   `<data_dir>/indexer.key` (mode 0600). The key is disposable and pseudonymous
-   — rotation just makes a new indexer.
-3. **Verify before going live.** Always run the verification ritual (below)
-   before letting a fresh install publish.
-4. **Get explicit user consent before the first real run.** Dry-run first, show
-   the user the built event, then start the publisher. Observations are public
-   and permanent on relays.
-5. Pin = `scrapling[fetchers]==0.4.15`. Scrapling is pre-1.0 and churns; do not
-   upgrade the pin without re-running the full verification ritual.
+## Non-negotiable operating rules
+
+1. Use the vendored protocol implementation. Never hand-roll URL normalization or hashes. After any protocol change, run python -m sip01_node --selftest.
+2. **Python 3.11 minimum.** The implementation imports the standard-library tomllib module, which is not present in Python 3.10. Python 3.12 is a good supported runtime. Do not describe Python 3.10 as supported unless a tomli fallback is implemented and tested.
+3. By default, the node creates a separate indexer identity in <data_dir>/indexer.key with mode 0600. Do not reuse a human user's Nostr key or copy one node's indexer key to another node.
+4. Never place a private key in a model prompt, command-line argument, shell history, repository, ordinary logs or stdout. Do not run commands that echo an nsec. If a deployment injects SIP01_NSEC from a secret manager, keep that secret outside the repo and restrict access. The supported override is SIP01_NSEC; SIP01_NSEC_FILE is not implemented.
+5. Dry-run and inspect the unsigned event before enabling publishing. Obtain explicit user approval before the first real run because observations are public Nostr events and can be replicated.
+6. Keep the Scrapling dependency pinned at scrapling[fetchers]==0.4.15 until the full verification suite is rerun against a deliberate dependency update.
+7. The SSRF guard is part of the security boundary. Do not bypass it or weaken redirect/DNS checks.
 
 ## Install
 
-Prereqs: Python ≥ 3.10 (3.12 recommended) OR Docker. Disk: `scrapling[fetchers]`
-pulls ~110 MB of wheels (patchright/playwright packages) even without browser
-binaries; `scrapling install` adds ~1 GB of browsers on top. On slow links,
-retry pip if a wheel download stalls.
+### Docker
 
-**Docker (preferred for servers/Umbrel):**
+~~~bash
+git clone https://github.com/SIP-01/Crawlstr-v3.git
+cd Crawlstr-v3/scrapling-node
+cp config.example.toml config.toml
+# Set seeds and relay policy in config.toml; do not put private keys there.
+docker compose up -d
+docker compose logs -f
+~~~
 
-```bash
-git clone https://github.com/SIP-01/Crawlstr-v3.git && cd Crawlstr-v3/scrapling-node
-cp config.example.toml config.toml   # edit seeds/relays/source
-echo 'SIP01_NSEC=nsec1...' > .env    # optional; omit to auto-generate
-chmod 600 .env
-docker compose up -d                 # logs: docker compose logs -f
-```
+The node generates its own indexer key in its configured data directory when no SIP01_NSEC secret is injected. Verify the actual volume mount and data_dir before starting the service.
 
-**pip (bare metal):**
+### Python / VPS / Umbrel host
 
-```bash
-git clone https://github.com/SIP-01/Crawlstr-v3.git && cd Crawlstr-v3/scrapling-node
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-scrapling install        # OPTIONAL — only for Dynamic/Stealthy browser tiers
-python -m sip01_node --config config.toml
-```
+Requires Python 3.11 or newer.
 
-For the indexstr variant use the `SIP-01/indexstr-v3` repo (config defaults to
-`source = "indexstr/v3"`), or pass `--source indexstr/v3` — the CLI enables the
-heartbeat (kind 16919) + intake flags the same way the config loader does.
-
-## Verify (mandatory ritual)
-
-With the node's venv activated (the script calls bare `python3`):
-
-```bash
-bash scripts/verify_install.sh <path-to-scrapling-node>
-```
-
-The script ships with this skill at `scripts/verify_install.sh` and is also
-mirrored into both node repos at `.agents/skills/sip01-node/scripts/`. Invoke
-it with `bash` — do not rely on an exec bit. It runs against isolated
-throwaway data dirs, so re-runs are safe and the node's real `./data` is
-never touched.
-
-Checks, in order: Python ≥ 3.10 → package imports → scrapling pin → selftest
-(spec §13 vectors) → dry-run crawl of https://example.com producing
-`d = widx:0f115db062b7c0dd030b16878c99dea5` → real key generation with mode
-0600 → outbox retry path via a dead loopback relay (signed, **nothing
-published**) → secret never appears in logs. All green = safe to start.
-
-Needs live HTTPS to example.com; on offline/air-gapped hosts run with
-`VERIFY_SKIP_NETWORK=1` (checks 5–6 skip — tell the user they were skipped).
-
-Equivalent manual commands:
-
-```bash
+~~~bash
+git clone https://github.com/SIP-01/Crawlstr-v3.git
+cd Crawlstr-v3/scrapling-node
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 python -m sip01_node --selftest
 python -m sip01_node --once --dry-run --seed https://example.com
-```
+~~~
 
-## Operate
+Browser tiers are optional. Install browser binaries only when DynamicFetcher or StealthyFetcher is required; the HTTP tier can run without them.
 
-- **Run once and exit:** `--once`. **Forever:** omit it (freshness recrawls,
-  outbox flushes, heartbeats run on schedule).
-- **Confirm publishing:** query a SIP-01 relay for the node's pubkey:
-  `{"kinds":[39697],"authors":["<node-pubkey>"],"limit":5}`.
-- Config reference (every option + env override): [references/config.md](references/config.md)
-- Updates, key rotation, systemd, logs, troubleshooting table:
-  [references/operations.md](references/operations.md)
+For indexstr mode, use the indexstr-v3 repository or set source to indexstr/v3. That mode enables the kind 16919 heartbeat and intake flags.
 
-## Known caveats (bake into expectations)
+## Verification ritual
 
-- Tier ladder is Fetcher (TLS-impersonated HTTP) → DynamicFetcher →
-  StealthyFetcher, escalating only on block signatures. Browser tiers need
-  `scrapling install`; stealth is best-effort, not a guarantee.
-- Browser-tier fetches can hang past their own timeout upstream (Scrapling
-  #468/#491) — the node wraps every fetch in a hard `asyncio.wait_for`; do not
-  remove that.
-- Relay fan-out failures are normal: zero-ack events go to the sqlite outbox
-  and retry. "Published" counts relay-ACKed events only.
+Run the packaged verification script with the node's virtual environment activated:
+
+~~~bash
+bash scripts/verify_install.sh <path-to-scrapling-node>
+~~~
+
+The script uses isolated temporary data directories and a dead loopback relay for the outbox check. It does not intentionally publish to a public relay. It requires live HTTPS to example.com for network checks. If VERIFY_SKIP_NETWORK=1, network-dependent checks are skipped and must not be reported as passed.
+
+The script must reject Python versions below 3.11 before importing sip01_node. A successful version check alone is not proof the full node is healthy; inspect every verification result.
+
+## Configuration and operation
+
+- TOML configuration is in config.toml; SIP01_<OPTION> variables override normal options.
+- The supported external key variable is SIP01_NSEC. No SIP01_NSEC_FILE variable is implemented.
+- The generated key file defaults to <data_dir>/indexer.key and must remain mode 0600.
+- Queue and outbox databases are rebuildable, but the indexer key identifies the publisher and should be backed up encrypted and offline.
+- Never delete the current key before a replacement identity and rollback plan are ready.
+- Relay acknowledgements indicate per-relay acceptance, not global replication or guaranteed search availability.
+
+For systemd, use the supplied reference service in references/operations.md. Use a dedicated service user and StateDirectory. Leave the optional SIP01_NSEC environment file out when using the generated key. If an external secret is required, inject only the supported SIP01_NSEC variable from a root-owned, mode-0600 EnvironmentFile or a deployment secret manager; do not add the secret to config.toml.
+
+## Troubleshooting expectations
+
+- Zero relay acknowledgements can be a connectivity, relay-policy or rate-limit issue; inspect each relay result and the persistent outbox.
+- An increasing outbox is not proof of successful publication.
+- Browser tiers need browser installation and remain best-effort against anti-bot systems.
+- A dry-run proves event construction, not that a relay accepts or indexes a real event.
+- A public observation event is not private; never crawl authenticated/private pages or publish private URLs or query strings.
+
+## Related references
+
+- references/config.md — supported config options and environment overrides.
+- references/operations.md — systemd, key lifecycle, update and troubleshooting procedures.
