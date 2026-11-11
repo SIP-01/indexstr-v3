@@ -23,11 +23,11 @@ TESTDATA="$(mktemp -d)"
 TESTDATA2="$(mktemp -d)"
 trap 'rm -rf "$TESTDATA" "$TESTDATA2"' EXIT
 
-# 1. Python >= 3.10
-if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
-  ok "python $(python3 -V 2>&1 | awk '{print $2}') >= 3.10"
+# 1. Python >= 3.11
+if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
+  ok "python $(python3 -V 2>&1 | awk '{print $2}') >= 3.11"
 else
-  bad "python >= 3.10 required"
+  bad "python >= 3.11 required"
 fi
 
 # 2. Package importable

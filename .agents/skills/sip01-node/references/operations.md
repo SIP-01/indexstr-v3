@@ -1,86 +1,78 @@
-# Operations — running, updating, troubleshooting a SIP-01 node
-
-Contents: run modes · updating · key management · confirming publication · troubleshooting.
+# Operations — SIP-01 Scrapling Node
 
 ## Run modes
 
-**Docker (recommended):** `docker compose up -d` — `restart: unless-stopped` is
-already set; data persists in the `node-data` volume (queue, outbox, key).
-Logs: `docker compose logs -f`. Stop: `docker compose down` (graceful — the
-node finishes in-flight fetches on SIGTERM).
+**Docker:** use docker compose up -d. Confirm the compose volume maps the configured data directory persistently. Logs: docker compose logs -f. Stop gracefully with docker compose down.
 
 **systemd (bare metal):**
 
-```ini
+~~~ini
 [Unit]
-Description=SIP-01 scrapling node
+Description=SIP-01 Scrapling Node
 After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
+User=sip01
+Group=sip01
 WorkingDirectory=/opt/sip01/scrapling-node
-Environment=SIP01_NSEC_FILE=/opt/sip01/nsec   # or Environment=SIP01_NSEC=...
+StateDirectory=sip01
+Environment=SIP01_DATA_DIR=/var/lib/sip01
+# Optional only when an externally managed key is required:
+# EnvironmentFile=-/etc/sip01/sip01-node.env
 ExecStart=/opt/sip01/scrapling-node/.venv/bin/python -m sip01_node --config config.toml
-Restart=always
+Restart=on-failure
 RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sip01
 
 [Install]
 WantedBy=multi-user.target
-```
+~~~
 
-**Umbrel / home server:** run the Docker path inside any always-on container
-host. No inbound ports needed — the node only dials out (HTTPS + wss).
+When the optional EnvironmentFile is used, it must contain the supported variable SIP01_NSEC. The file should be provisioned securely outside the repository, owned by root and mode 0600. Do not put the key in the unit file itself. The default and preferred setup omits EnvironmentFile so the node creates its own key file.
+
+**Important:** the application reads SIP01_NSEC from the environment. It does not implement SIP01_NSEC_FILE. Do not configure that unsupported name.
 
 ## Updating
 
-```bash
-git pull   # or re-copy scrapling-node/ from the repo
-pip install -r requirements.txt        # picks up a moved pin if changed
-python -m sip01_node --selftest        # MUST pass before restart
-docker compose up -d --build           # or: systemctl restart sip01-node
-```
+~~~bash
+git pull
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m sip01_node --selftest
+~~~
 
-The sqlite queue/outbox survive updates; recrawl state is preserved.
+Only restart after the selftest passes. For Docker, rebuild the image after dependency/source updates. Back up the current data directory before upgrades that alter persistence formats.
 
 ## Key management
 
-- Find the node pubkey (npub): printed at startup, or derive from the key file.
-  Never copy `indexer.key` between nodes — one key = one indexer identity.
-- **Rotate:** delete `<data_dir>/indexer.key` (or point `SIP01_NSEC` at a new
-  key) and restart. A fresh indexer identity starts clean; old observations
-  stay valid under the old pubkey.
-- Backup: the only state worth backing up is `indexer.key` (identity) — the
-  queue/outbox are rebuildable.
+- By default the node creates <data_dir>/indexer.key with mode 0600.
+- The key is the node's persistent publisher identity. Losing it creates a new indexer identity; old observations remain attributed to the old pubkey.
+- Back up indexer.key encrypted, offline and with restricted recovery access. Do not store plaintext copies in the repository, a shared volume or a general-purpose agent workspace.
+- Do not copy one node's key to another node; each node should have a distinct identity.
+- Plan rotation before changing identities. Keep an encrypted recovery copy of the old identity until the replacement identity is confirmed operational. Do not simply delete the current key as the first rotation step.
 
 ## Confirming publication
 
-```bash
-# any Nostr client or CLI, filter by the node pubkey:
-{"kinds":[39697],"authors":["<node-pubkey-hex>"],"limit":5}
-# heartbeats (indexstr mode):
-{"kinds":[16919],"authors":["<node-pubkey-hex>"],"limit":5}
-```
-
-Zero results right after start ≠ broken — relays ack asynchronously and some
-drop addressable events from unknown keys; check node logs for `ok/total` ack
-counts first.
+Query the node's public indexer pubkey for kind 39697. For indexstr mode, inspect kind 16919 heartbeats too. A relay OK acknowledgement means that particular relay accepted the event; it is not proof of global replication or search indexing.
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
+| Symptom | Cause | Action |
 |---|---|---|
-| `ModuleNotFoundError: scrapling` | deps not installed in the active env | activate the venv; `pip install -r requirements.txt` |
-| Browser tiers raise `TierUnavailableError` | browsers not installed | `scrapling install` (needs ~1 GB), or set `stealth = "off"` |
-| pip crawl fails on `patchright` download | slow/filtered network | retry; tier-1 HTTP works without browsers meanwhile |
-| Big wheels (`patchright`/`playwright`) stall, time out, or fail hash checks | degraded route to files.pythonhosted.org | switch to a regional PyPI mirror, e.g. `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` (observed 50× faster + clean hashes on CN-adjacent networks) |
-| `0/N relays acked` persistently | relays down or key rate-limited | check logs per relay; outbox retains events and retries; verify relays with a NIP-11 probe |
-| Crawl pauses with "bandwidth budget exhausted" | `hourly_bandwidth_mb` hit | intended; raise the budget or wait for the window to roll |
-| Pages skipped as thin | JS-only site, tier-1 fetch | set `stealth = "auto"`/`"always"` + `scrapling install` |
-| `SSRF guard refused` for a legit public URL | DNS resolves to private IP (split-horizon) | check local DNS; the guard is working as designed |
-| Queue grows but nothing dispatches | all rows future-`next_try` (freshness) | intended backoff; `--once` drains only due rows |
-| After upgrade: selftest fails | vendored protocol file touched | restore `sip01_node/sip01.py` from the repo; never hand-edit it |
+| ModuleNotFoundError: tomllib | Python is older than 3.11 | Install/use Python 3.11+ and recreate the virtual environment |
+| ModuleNotFoundError: scrapling | dependencies missing from active environment | activate the node venv and install requirements.txt |
+| Browser tiers unavailable | browser binaries are not installed | install browser dependencies or use stealth=off |
+| 0/N relays acknowledged | relays unreachable, rejecting or rate-limiting | inspect per-relay logs and outbox retries |
+| Outbox grows | relay acknowledgements are not arriving | verify relay URLs/connectivity and inspect retry state |
+| Crawl paused on bandwidth | hourly bandwidth limit reached | review the configured budget; do not disable without a resource plan |
+| SSRF guard refused URL | destination resolves to private/reserved address | treat the guard as expected; only change seed URLs after verifying destination ownership |
+| Selftest fails after update | protocol code or dependency drift | do not publish; restore the known-good release and investigate |
 
-## Security posture (state this to users)
+## Security posture
 
-Node key is env-only/0600, never logged · SSRF guard on every fetch incl.
-redirects and robots.txt · events self-validated before publish · relay list is
-a fixed allowlist (ws/wss only) · no inbound listeners.
+The node should have no inbound listener, a dedicated local identity, restrictive key-file permissions, bounded fetch timeouts/concurrency, public-destination SSRF protection including redirects, and explicit user approval before first publication. These controls must be verified on the actual deployed revision; this document is not a runtime attestation.

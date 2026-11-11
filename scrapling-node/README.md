@@ -7,7 +7,7 @@
  └──────────────────────────────────────────────┘
 ```
 
-![python](https://img.shields.io/badge/python-%3E%3D3.10-blue)
+![python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
 ![scrapling](https://img.shields.io/badge/scrapling-0.4.15-green)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 ![protocol](https://img.shields.io/badge/protocol-SIP--01-orange)
@@ -38,7 +38,7 @@ flowchart LR
 
 ## Quickstart
 
-**pip** (Python ≥ 3.10; 3.12 recommended):
+**pip** (Python ≥ 3.11; 3.12 recommended):
 
 ```bash
 pip install -r requirements.txt
@@ -47,11 +47,11 @@ scrapling install
 
 python -m sip01_node --selftest                              # protocol vectors
 python -m sip01_node --once --dry-run --seed https://example.com
-SIP01_NSEC=nsec1... python -m sip01_node --config config.toml
+python -m sip01_node --config config.toml  # generates an isolated key on first run
 ```
 
 If `SIP01_NSEC` is unset the node generates an indexer key on first run and
-persists it in `<data_dir>/indexer.key` (mode `0600`). The nsec is never logged.
+persists it in `<data_dir>/indexer.key` (mode `0600`). This generated-key mode is preferred. If an externally managed secret is required, inject the supported SIP01_NSEC variable through a protected deployment secret source; never put it in command arguments, source control or model context.
 
 Note: re-running the dry-run against the same `./data` directory crawls
 nothing — the 24h freshness cache suppresses recrawl. Delete `./data` to
@@ -61,7 +61,7 @@ start fresh.
 
 ```bash
 docker build -t sip01-scrapling-node .
-docker run --rm -v sip01-data:/data -e SIP01_NSEC=nsec1... sip01-scrapling-node
+docker run --rm -v sip01-data:/data sip01-scrapling-node  # generated key persists in the volume
 # or: cp config.example.toml config.toml && docker compose up -d
 ```
 
