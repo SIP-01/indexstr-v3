@@ -1,11 +1,8 @@
-"""nostr.py — Nostr signing (NIP-01/BIP340, vendored, zero-dep) + async relay pool.
+"""Nostr NIP-01 event construction and async relay pool.
 
-The key/signing half is vendored from the `nostr` skill's nostr_key.py
-(pure stdlib secp256k1 BIP340 Schnorr). The relay half is an async
-:class:`RelayPool` built on ``websockets`` with per-relay OK-ack tracking,
-reconnect with exponential backoff, and a bounded in-flight publish window.
-
-Nothing in this module ever logs secret key material.
+BIP-340 key derivation, Schnorr signing and verification use coincurve's
+C-backed libsecp256k1 implementation. Python code in this module never performs
+secret-dependent elliptic-curve scalar multiplication.
 """
 from __future__ import annotations
 
@@ -16,104 +13,35 @@ import logging
 import secrets
 from dataclasses import dataclass, field
 
+from coincurve import PrivateKey, PublicKeyXOnly
+
 log = logging.getLogger(__name__)
 
-# ---------------- secp256k1 field/curve (vendored from nostr_key.py) --------
-P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-G = (
-    0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
-    0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,
-)
-INF = None
 
-
-def _inv(x: int, m: int = P) -> int:
-    return pow(x, m - 2, m)
-
-
-def _add(p, q):
-    if p is INF:
-        return q
-    if q is INF:
-        return p
-    if p[0] == q[0]:
-        if (p[1] + q[1]) % P == 0:
-            return INF
-        lam = (3 * p[0] * p[0]) * _inv(2 * p[1]) % P
-    else:
-        lam = (q[1] - p[1]) * _inv(q[0] - p[0]) % P
-    x = (lam * lam - p[0] - q[0]) % P
-    return (x, (lam * (p[0] - x) - p[1]) % P)
-
-
-def _mul(k: int, pt=G):
-    r = INF
-    while k:
-        if k & 1:
-            r = _add(r, pt)
-        pt = _add(pt, pt)
-        k >>= 1
-    return r
-
-
-def _lift_x(x: int):
-    y = pow((x * x * x + 7) % P, (P + 1) // 4, P)
-    if y & 1:
-        y = P - y
-    return (x, y)
-
-
-def _i2b(i: int) -> bytes:
-    return i.to_bytes(32, "big")
-
-
-def _b2i(b: bytes) -> int:
-    return int.from_bytes(b, "big")
-
-
-def _tagged(tag: str, *msgs: bytes) -> bytes:
-    th = hashlib.sha256(tag.encode()).digest()
-    h = hashlib.sha256(th + th)
-    for m in msgs:
-        h.update(m)
-    return h.digest()
-
-
-# ---------------- BIP340 Schnorr (vendored) --------------------------------
 def schnorr_sign(msg32: bytes, seckey_bytes: bytes, aux: bytes | None = None) -> bytes:
-    """BIP340 Schnorr-sign a 32-byte message. Returns a 64-byte signature."""
-    d0 = _b2i(seckey_bytes)
-    if not 1 <= d0 < N:
-        raise ValueError("invalid secret key")
-    pub = _mul(d0)
-    d = N - d0 if pub[1] & 1 else d0
-    aux = aux if aux is not None else secrets.token_bytes(32)
-    t = bytes(a ^ b for a, b in zip(_i2b(d), _tagged("BIP0340/aux", aux)))
-    k0 = _b2i(_tagged("BIP0340/nonce", t, _i2b(pub[0]), msg32)) % N
-    if k0 == 0:
-        raise RuntimeError("nonce is zero (astronomically unlikely)")
-    R = _mul(k0)
-    k = N - k0 if R[1] & 1 else k0
-    e = _b2i(_tagged("BIP0340/challenge", _i2b(R[0]), _i2b(pub[0]), msg32)) % N
-    return _i2b(R[0]) + _i2b((k + e * d) % N)
+    """BIP340 Schnorr-sign a 32-byte message using libsecp256k1."""
+    if len(msg32) != 32:
+        raise ValueError("BIP340 message must be 32 bytes")
+    if len(seckey_bytes) != 32:
+        raise ValueError("BIP340 secret key must be 32 bytes")
+    if aux is None:
+        aux = secrets.token_bytes(32)
+    if len(aux) != 32:
+        raise ValueError("BIP340 auxiliary randomness must be 32 bytes")
+    return PrivateKey(seckey_bytes).sign_schnorr(msg32, aux_randomness=aux)
 
 
 def schnorr_verify(msg32: bytes, pubkey32: bytes, sig64: bytes) -> bool:
-    """Verify a BIP340 Schnorr signature."""
-    if len(sig64) != 64 or len(pubkey32) != 32:
+    """Verify a BIP340 Schnorr signature using libsecp256k1."""
+    if len(msg32) != 32 or len(pubkey32) != 32 or len(sig64) != 64:
         return False
-    px = _b2i(pubkey32)
-    if px >= P:
+    try:
+        return PublicKeyXOnly(pubkey32).verify(sig64, msg32)
+    except (TypeError, ValueError):
         return False
-    r, s = _b2i(sig64[:32]), _b2i(sig64[32:])
-    if r >= P or s >= N:
-        return False
-    e = _b2i(_tagged("BIP0340/challenge", sig64[:32], pubkey32, msg32)) % N
-    R = _add(_mul(s), _mul(N - e, _lift_x(px)))
-    return R is not INF and not (R[1] & 1) and R[0] == r
 
 
+# ---------------- bech32 (BIP-173, NIP-19) ----------------------------------
 # ---------------- bech32 (BIP-173, NIP-19) ----------------------------------
 _CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
@@ -193,16 +121,25 @@ def nsec_decode(s: str) -> str:
 
 # ---------------- NIP-01 keys & events --------------------------------------
 def generate_seckey() -> str:
-    """Generate a new secret key (hex)."""
+    """Generate a valid random secret key (hex) with libsecp256k1 validation."""
     while True:
         sk = secrets.token_bytes(32)
-        if 1 <= _b2i(sk) < N:
-            return sk.hex()
+        try:
+            PrivateKey(sk)
+        except ValueError:
+            continue
+        return sk.hex()
 
 
 def pubkey_from_seckey(seckey_hex: str) -> str:
     """Derive the x-only BIP340 public key (hex) from a secret key (hex)."""
-    return _i2b(_mul(_b2i(bytes.fromhex(seckey_hex)))[0]).hex()
+    try:
+        seckey = bytes.fromhex(seckey_hex)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("secret key must be 32-byte hex") from exc
+    if len(seckey) != 32:
+        raise ValueError("secret key must be 32 bytes")
+    return PrivateKey(seckey).public_key_xonly.format().hex()
 
 
 def event_id(ev: dict) -> str:
@@ -224,10 +161,18 @@ def sign_event(ev: dict, seckey_hex: str) -> dict:
 
 
 def verify_event(ev: dict) -> bool:
-    """Verify id commitment and BIP340 signature of a signed event."""
-    if event_id(ev) != ev.get("id"):
+    """Verify the NIP-01 event commitment and BIP340 signature."""
+    try:
+        if event_id(ev) != ev.get("id"):
+            return False
+        return schnorr_verify(
+            bytes.fromhex(ev["id"]),
+            bytes.fromhex(ev["pubkey"]),
+            bytes.fromhex(ev["sig"]),
+        )
+    except (KeyError, TypeError, ValueError):
         return False
-    return schnorr_verify(bytes.fromhex(ev["id"]), bytes.fromhex(ev["pubkey"]), bytes.fromhex(ev["sig"]))
+
 
 
 # ---------------- async relay pool ------------------------------------------

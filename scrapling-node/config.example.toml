@@ -51,9 +51,11 @@ hourly_bandwidth_mb = 256.0
 # Persist Scrapling's adaptive (selector relocation) store in the data dir.
 adaptive_store = false
 
-# Browser escalation: "off" (plain HTTP only), "auto" (escalate on anti-bot
-# blocks), "always" (start at the stealth tier). Browser tiers need
-# `scrapling install` (browser download) first.
+# Browser escalation: "off" (pinned HTTP only), "auto" (browser escalation only
+# with SIP01_SAFE_EGRESS_PROXY), "always" (requires the proxy and starts at
+# the stealth tier). Browser tiers also need `scrapling install` first.
+# SIP01_SAFE_EGRESS_PROXY is environment-only; use an operator-verified
+# SSRF-enforcing HTTP(S) proxy and block direct browser network egress.
 stealth = "auto"
 
 # Concurrent page fetches across domains.

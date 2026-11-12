@@ -20,8 +20,9 @@ The node publishes signed kind 39697 observations to configured Nostr relays. Th
 3. By default, the node creates a separate indexer identity in <data_dir>/indexer.key with mode 0600. Do not reuse a human user's Nostr key or copy one node's indexer key to another node.
 4. Never place a private key in a model prompt, command-line argument, shell history, repository, ordinary logs or stdout. Do not run commands that echo an nsec. If a deployment injects SIP01_NSEC from a secret manager, keep that secret outside the repo and restrict access. The supported override is SIP01_NSEC; SIP01_NSEC_FILE is not implemented.
 5. Dry-run and inspect the unsigned event before enabling publishing. Obtain explicit user approval before the first real run because observations are public Nostr events and can be replicated.
-6. Keep the Scrapling dependency pinned at scrapling[fetchers]==0.4.15 until the full verification suite is rerun against a deliberate dependency update.
-7. The SSRF guard is part of the security boundary. Do not bypass it or weaken redirect/DNS checks.
+6. Keep scrapling[fetchers]==0.4.15 and coincurve==21.0.0 pinned until the full verification suite is rerun against deliberate dependency updates.
+7. The HTTP tier validates every DNS A/AAAA answer, pins the actual libcurl connection to the validated addresses, disables automatic redirects and manually validates/pins each redirect hop. Never add a second DNS lookup between validation and connection.
+8. Browser tiers must fail closed unless SIP01_SAFE_EGRESS_PROXY points to an operator-verified SSRF-enforcing HTTP(S) proxy. That proxy must validate every destination, redirect, CONNECT target and browser subresource; network policy must prevent browser processes from bypassing it with direct egress. A proxy URL alone is not proof the proxy is safe.
 
 ## Install
 
@@ -52,7 +53,7 @@ python -m sip01_node --selftest
 python -m sip01_node --once --dry-run --seed https://example.com
 ~~~
 
-Browser tiers are optional. Install browser binaries only when DynamicFetcher or StealthyFetcher is required; the HTTP tier can run without them.
+Browser tiers are optional. Install browser binaries only when DynamicFetcher or StealthyFetcher is required. The default auto mode uses the DNS-pinned HTTP tier only unless SIP01_SAFE_EGRESS_PROXY is configured. Explicit stealth=always fails closed without that proxy.
 
 For indexstr mode, use the indexstr-v3 repository or set source to indexstr/v3. That mode enables the kind 16919 heartbeat and intake flags.
 
@@ -72,6 +73,7 @@ The script must reject Python versions below 3.11 before importing sip01_node. A
 
 - TOML configuration is in config.toml; SIP01_<OPTION> variables override normal options.
 - The supported external key variable is SIP01_NSEC. No SIP01_NSEC_FILE variable is implemented.
+- SIP01_SAFE_EGRESS_PROXY is an environment-only HTTP(S) proxy URL for the browser tiers; never put it in config.toml or ordinary logs. Verify the proxy enforces SSRF controls for every request and browser subresource and prevent direct egress at the host/container network layer.
 - The generated key file defaults to <data_dir>/indexer.key and must remain mode 0600.
 - Queue and outbox databases are rebuildable, but the indexer key identifies the publisher and should be backed up encrypted and offline.
 - Never delete the current key before a replacement identity and rollback plan are ready.
@@ -83,7 +85,7 @@ For systemd, use the supplied reference service in references/operations.md. Use
 
 - Zero relay acknowledgements can be a connectivity, relay-policy or rate-limit issue; inspect each relay result and the persistent outbox.
 - An increasing outbox is not proof of successful publication.
-- Browser tiers need browser installation and remain best-effort against anti-bot systems.
+- Browser tiers unavailable: check browser installation and SIP01_SAFE_EGRESS_PROXY. Without a verified egress proxy, auto mode intentionally stays on the static HTTP tier and always mode refuses to start.
 - A dry-run proves event construction, not that a relay accepts or indexes a real event.
 - A public observation event is not private; never crawl authenticated/private pages or publish private URLs or query strings.
 

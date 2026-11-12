@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     env_file:
       - path: .env
-        required: false   # SIP01_NSEC=nsec1... (never commit this file)
+        required: false   # SIP01_NSEC and/or SIP01_SAFE_EGRESS_PROXY (never commit this file)
     environment:
       SIP01_DATA_DIR: /data
     volumes:
