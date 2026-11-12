@@ -220,7 +220,7 @@ class TieredFetcher:
         """Fetch with DNS-pinned libcurl and manually guarded redirects."""
         from curl_cffi import CurlOpt
         from curl_cffi.requests import Session
-        from scrapling.engines.toolbelt.convertor import ResponseFactory
+        from types import SimpleNamespace
         from urllib.parse import urljoin
 
         current = url
@@ -252,8 +252,13 @@ class TieredFetcher:
                 current = next_url
                 continue
 
-            return ResponseFactory.from_http_request(
-                response, {}, meta={"ssrf_dns_pinned": True}
+            # Keep the transport layer intentionally lightweight. Wrapping
+            # the response in Scrapling's adapter emits full-URL INFO logs,
+            # which can expose private query strings or path tokens.
+            return SimpleNamespace(
+                status=status,
+                body=response.content,
+                url=current,
             )
 
         raise FetchError(f"redirect limit ({max_redirects}) exceeded")
