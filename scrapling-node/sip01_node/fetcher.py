@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import os
 import socket
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -72,31 +73,75 @@ class FetchResult:
     tier: int
 
 
-def _check_public_host(url: str) -> None:
-    """SSRF guard: refuse URLs whose host resolves to a non-public address.
+def _check_public_host(url: str) -> tuple[str, ...]:
+    """Resolve a URL and return canonical public IPs for connection pinning.
 
-    Rejects loopback, private (RFC1918), link-local, CGNAT (100.64.0.0/10),
-    multicast, reserved and unspecified addresses after DNS resolution.
+    All A/AAAA answers must be globally routable. The caller must use the
+    returned answers for the actual connection; a preflight DNS check followed
+    by a second resolver lookup is vulnerable to DNS rebinding.
     """
-    host = urlsplit(url).hostname
-    if not host:
-        raise SSRFError(f"no host in URL: {url!r}")
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as exc:
-        raise FetchError(f"DNS resolution failed for {host}: {exc}") from exc
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-            or ip in ipaddress.ip_network("100.64.0.0/10")
-        ):
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        host = parts.hostname
+        port = parts.port
+    except ValueError as exc:
+        raise SSRFError(f"invalid URL authority: {exc}") from exc
+
+    if scheme not in ("http", "https"):
+        raise SSRFError("only http and https URLs are permitted")
+    if not host:
+        raise SSRFError("URL has no hostname")
+    if parts.username is not None or parts.password is not None:
+        raise SSRFError("credentials in target URLs are not permitted")
+    if "%" in host:
+        raise SSRFError("scoped IP literals are not permitted")
+
+    port = port if port is not None else (443 if scheme == "https" else 80)
+    if port == 0:
+        raise SSRFError("port 0 is not a valid crawl destination")
+
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+            infos = socket.getaddrinfo(ascii_host, port, type=socket.SOCK_STREAM)
+        except (UnicodeError, socket.gaierror, OSError) as exc:
+            raise FetchError(f"DNS resolution failed for {host}: {exc}") from exc
+        addresses = tuple(dict.fromkeys(
+            ipaddress.ip_address(info[4][0].split("%", 1)[0])
+            for info in infos
+        ))
+    else:
+        addresses = (literal,)
+
+    if not addresses:
+        raise FetchError(f"DNS returned no addresses for {host}")
+    cgnat = ipaddress.ip_network("100.64.0.0/10")
+    for ip in addresses:
+        if not ip.is_global or ip in cgnat:
             raise SSRFError(f"{host} resolves to non-public address {ip}")
+    return tuple(str(ip) for ip in addresses)
+
+
+def _curl_resolve_entry(url: str, addresses: tuple[str, ...]) -> str | None:
+    """Build a CURLOPT_RESOLVE entry for a hostname; IP literals need none."""
+    parts = urlsplit(url)
+    host = parts.hostname
+    if not host:
+        raise SSRFError("URL has no hostname")
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        ascii_host = host.encode("idna").decode("ascii")
+    port = parts.port if parts.port is not None else (443 if parts.scheme.lower() == "https" else 80)
+    values = ",".join(
+        f"[{address}]" if ipaddress.ip_address(address).version == 6 else address
+        for address in addresses
+    )
+    return f"{ascii_host}:{port}:{values}"
 
 
 def _looks_blocked(status: int, html: str) -> bool:
@@ -142,6 +187,7 @@ class TieredFetcher:
         timeout: float = 30.0,
         max_page_kb: int = 512,
         adaptive_db: str | None = None,
+        safe_egress_proxy: str | None = None,
     ) -> None:
         if stealth not in ("off", "auto", "always"):
             raise ValueError("stealth must be 'off', 'auto' or 'always'")
@@ -149,20 +195,78 @@ class TieredFetcher:
         self.timeout = timeout
         self.max_page_kb = max_page_kb
         self.adaptive_db = adaptive_db
+        # Proxy URLs can contain credentials; never include this value in logs.
+        self.safe_egress_proxy = (
+            safe_egress_proxy or os.environ.get("SIP01_SAFE_EGRESS_PROXY") or None
+        )
 
     # -- individual tiers (sync, run in a worker thread) ---------------------
     def _tier1(self, url: str):
-        from scrapling.fetchers import Fetcher
+        """Fetch with DNS-pinned libcurl and manually guarded redirects."""
+        from curl_cffi import CurlOpt
+        from curl_cffi.requests import Session
+        from scrapling.engines.toolbelt.convertor import ResponseFactory
+        from urllib.parse import urljoin
 
-        return Fetcher.get(url, impersonate="chrome", timeout=int(self.timeout), follow_redirects=True)
+        current = url
+        max_redirects = 10
+        for redirect_count in range(max_redirects + 1):
+            addresses = _check_public_host(current)
+            resolve_entry = _curl_resolve_entry(current, addresses)
+            curl_options = {CurlOpt.RESOLVE: [resolve_entry]} if resolve_entry else {}
+
+            # libcurl never follows a redirect automatically. Resolve, validate
+            # and pin each Location before opening the next connection.
+            with Session(
+                curl_options=curl_options,
+                allow_redirects=False,
+                max_redirects=0,
+                timeout=self.timeout,
+                impersonate="chrome",
+                trust_env=False,
+            ) as session:
+                response = session.get(current)
+
+            status = int(response.status_code)
+            location = response.headers.get("Location")
+            if status in (301, 302, 303, 307, 308) and location:
+                if redirect_count >= max_redirects:
+                    raise FetchError(f"redirect limit ({max_redirects}) exceeded")
+                next_url = urljoin(current, location)
+                _check_public_host(next_url)
+                current = next_url
+                continue
+
+            return ResponseFactory.from_http_request(
+                response, {}, meta={"ssrf_dns_pinned": True}
+            )
+
+        raise FetchError(f"redirect limit ({max_redirects}) exceeded")
+
+    def _require_safe_browser_proxy(self) -> str:
+        if not self.safe_egress_proxy:
+            raise TierUnavailableError(
+                "browser tiers are disabled: configure SIP01_SAFE_EGRESS_PROXY "
+                "to an operator-verified SSRF-enforcing egress proxy"
+            )
+        try:
+            parts = urlsplit(self.safe_egress_proxy)
+            if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+                raise ValueError("proxy URL must use http or https")
+            if any(ch.isspace() for ch in self.safe_egress_proxy):
+                raise ValueError("proxy URL contains whitespace")
+        except ValueError as exc:
+            raise TierUnavailableError(f"invalid safe egress proxy configuration: {exc}") from exc
+        return self.safe_egress_proxy
 
     def _tier2(self, url: str):
+        proxy = self._require_safe_browser_proxy()
         try:
             from scrapling.fetchers import DynamicFetcher
         except ImportError as exc:  # pragma: no cover
             raise TierUnavailableError("DynamicFetcher unavailable") from exc
         try:
-            return DynamicFetcher.fetch(url, timeout=int(self.timeout * 1000))
+            return DynamicFetcher.fetch(url, timeout=int(self.timeout * 1000), proxy=proxy)
         except Exception as exc:
             if "install" in str(exc).lower() or "executable" in str(exc).lower():
                 raise TierUnavailableError(
@@ -170,12 +274,13 @@ class TieredFetcher:
             raise
 
     def _tier3(self, url: str):
+        proxy = self._require_safe_browser_proxy()
         try:
             from scrapling.fetchers import StealthyFetcher
         except ImportError as exc:  # pragma: no cover
             raise TierUnavailableError("StealthyFetcher unavailable") from exc
         try:
-            kwargs = {"timeout": int(self.timeout * 1000)}
+            kwargs = {"timeout": int(self.timeout * 1000), "proxy": proxy}
             if self.adaptive_db:
                 kwargs["adaptive"] = False
             return StealthyFetcher.fetch(url, headless=True, **kwargs)
@@ -192,13 +297,15 @@ class TieredFetcher:
 
     async def fetch(self, url: str) -> FetchResult:
         """Fetch ``url`` through the tier ladder. Raises FetchError subclasses."""
-        await asyncio.to_thread(_check_public_host, url)
-
         tiers: list = []
         if self.stealth == "always":
+            self._require_safe_browser_proxy()
             tiers = [self._tier3, self._tier2, self._tier1]
         elif self.stealth == "auto":
-            tiers = [self._tier1, self._tier2, self._tier3]
+            tiers = [self._tier1]
+            if self.safe_egress_proxy:
+                self._require_safe_browser_proxy()
+                tiers.extend([self._tier2, self._tier3])
         else:
             tiers = [self._tier1]
 
@@ -223,12 +330,9 @@ class TieredFetcher:
             status = _status_of(resp)
             html = _html_of(resp)
             final = _final_url_of(resp, url)
-            # re-validate final URL after redirects (tier-1 follow_redirects)
+            # Defense in depth; Tier 1 already validates and pins every hop.
             if final != url:
-                try:
-                    await asyncio.to_thread(_check_public_host, final)
-                except SSRFError as exc:
-                    raise SSRFError(f"redirect target {final} failed SSRF guard: {exc}") from exc
+                await asyncio.to_thread(_check_public_host, final)
             if _looks_blocked(status, html) and i < len(tiers):
                 log.info("tier %d blocked for %s (status %s) — escalating", tier_no, url, status)
                 continue
