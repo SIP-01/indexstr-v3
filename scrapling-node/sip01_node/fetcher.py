@@ -177,6 +177,21 @@ def _final_url_of(resp, fallback: str) -> str:
     return str(getattr(resp, "url", None) or fallback)
 
 
+def _safe_url_for_log(url: str) -> str:
+    """Return an origin-only URL without credentials, path, query or fragment."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        if not parts.scheme or not host:
+            return "<invalid-url>"
+        display_host = f"[{host}]" if ":" in host else host
+        port = parts.port
+        authority = f"{display_host}:{port}" if port is not None else display_host
+        return f"{parts.scheme.lower()}://{authority}"
+    except ValueError:
+        return "<invalid-url>"
+
+
 class TieredFetcher:
     """Async facade over Scrapling's fetch tiers with escalation on blocks."""
 
@@ -253,6 +268,12 @@ class TieredFetcher:
             parts = urlsplit(self.safe_egress_proxy)
             if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
                 raise ValueError("proxy URL must use http or https")
+            if parts.username is not None or parts.password is not None:
+                raise ValueError("proxy URL userinfo is not supported")
+            if parts.query or parts.fragment or parts.path not in ("", "/"):
+                raise ValueError("proxy URL must not contain a path, query or fragment")
+            if parts.port == 0:
+                raise ValueError("proxy port 0 is not valid")
             if any(ch.isspace() for ch in self.safe_egress_proxy):
                 raise ValueError("proxy URL contains whitespace")
         except ValueError as exc:
@@ -315,15 +336,15 @@ class TieredFetcher:
             try:
                 resp = await self._run_tier(tier_fn, url)
             except TierUnavailableError as exc:
-                log.info("tier %d unavailable for %s: %s", tier_no, url, exc)
+                log.info("tier %d unavailable for %s (%s)", tier_no, _safe_url_for_log(url), type(exc).__name__)
                 last_exc = exc
                 continue
             except (asyncio.TimeoutError, TimeoutError) as exc:
-                log.warning("tier %d timed out for %s", tier_no, url)
+                log.warning("tier %d timed out for %s", tier_no, _safe_url_for_log(url))
                 last_exc = FetchError(f"tier {tier_no} hard timeout")
                 continue
             except Exception as exc:
-                log.warning("tier %d failed for %s: %s", tier_no, url, exc)
+                log.warning("tier %d failed for %s (%s)", tier_no, _safe_url_for_log(url), type(exc).__name__)
                 last_exc = exc
                 continue
 
@@ -334,10 +355,10 @@ class TieredFetcher:
             if final != url:
                 await asyncio.to_thread(_check_public_host, final)
             if _looks_blocked(status, html) and i < len(tiers):
-                log.info("tier %d blocked for %s (status %s) — escalating", tier_no, url, status)
+                log.info("tier %d blocked for %s (status %s) — escalating", tier_no, _safe_url_for_log(url), status)
                 continue
             if status >= 400:
-                raise FetchError(f"HTTP {status} for {url}")
+                raise FetchError(f"HTTP {status} for {_safe_url_for_log(url)}")
             _cap_size(html, status, self.max_page_kb)
             return FetchResult(
                 url=url, final_url=final, html=html,
