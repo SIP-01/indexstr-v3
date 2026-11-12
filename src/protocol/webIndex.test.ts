@@ -215,7 +215,8 @@ describe('buildIndexEvent', () => {
       platform: 'github',
       network: 'clearnet',
       role: 'Tool',
-      proto: 'mcp',
+      proto: ['mcp', 'http'],
+      capabilityAddress: '39698:' + 'a'.repeat(64) + ':echo-tool',
       country: 'de',
       mime: 'APPLICATION/PDF',
     });
@@ -225,6 +226,8 @@ describe('buildIndexEvent', () => {
     expect(tags).toContainEqual(['network', 'clearnet']);
     expect(tags).toContainEqual(['role', 'tool']);
     expect(tags).toContainEqual(['proto', 'mcp']);
+    expect(tags).toContainEqual(['proto', 'http']);
+    expect(tags).toContainEqual(['a', '39698:' + 'a'.repeat(64) + ':echo-tool']);
     expect(tags).toContainEqual(['country', 'DE']);
     expect(tags).toContainEqual(['mime', 'application/pdf']);
   });
