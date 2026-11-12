@@ -2,6 +2,7 @@
 # scrapling is pre-1.0 — pin exactly. [fetchers] pulls curl_cffi (+ browser
 # stacks; browsers themselves need `scrapling install`, see Dockerfile).
 scrapling[fetchers]==0.4.15
+coincurve==21.0.0
 websockets>=12,<16
 
 # Python 3.11+ is required: sip01_node/config.py uses stdlib tomllib.
