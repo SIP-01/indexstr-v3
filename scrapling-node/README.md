@@ -82,7 +82,7 @@ TOML file (`--config`) with env overrides (`SIP01_<OPTION_UPPER>`;
 | `max_page_kb` | `512` | page-size cap |
 | `hourly_bandwidth_mb` | `256` | rolling hourly bandwidth budget |
 | `adaptive_store` | `false` | persist Scrapling adaptive store in data dir |
-| `stealth` | `auto` | `off` / `auto` / `always` browser escalation |
+| `stealth` | `auto` | `off` = pinned HTTP only; `auto` escalates to browser tiers only with `SIP01_SAFE_EGRESS_PROXY`; `always` requires that proxy |
 | `concurrency` | `4` | concurrent fetches (across domains) |
 | `log_level` | `INFO` | logging verbosity |
 | `fetch_timeout` | `30.0` | hard per-fetch timeout (browser tiers included) |
@@ -112,8 +112,9 @@ python -m sip01_node [--config config.toml] [--source indexstr/v3]
 - Extraction matches the TS nodes' semantics (og:/meta/canonical/
   `article:published_time`, thin-content gate), but byte-identical text metrics
   are not guaranteed across engines.
-- SSRF guard: private/loopback/CGNAT/link-local targets are refused after DNS
-  resolution.
+- Static-tier SSRF protection: every DNS A/AAAA answer must be globally routable; libcurl is pinned to the validated addresses and redirects are validated/pinned one hop at a time before connecting. Automatic redirects and inherited environment proxies are disabled.
+- Browser tiers require an operator-verified `SIP01_SAFE_EGRESS_PROXY` HTTP(S) proxy. It must apply SSRF restrictions to every CONNECT, redirect and browser subresource; host/container networking must prevent direct egress bypass. A proxy URL alone is not evidence that its policy is safe.
+- With `stealth=auto` and no proxy, only the static HTTP tier runs. With `stealth=always` and no proxy, the fetch fails closed.
 
 ## Tests
 
