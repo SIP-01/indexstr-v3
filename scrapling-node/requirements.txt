@@ -2,6 +2,7 @@
 # scrapling is pre-1.0 — pin exactly. [fetchers] pulls curl_cffi (+ browser
 # stacks; browsers themselves need `scrapling install`, see Dockerfile).
 scrapling[fetchers]==0.4.15
+curl_cffi==0.17.0
 coincurve==21.0.0
 websockets>=12,<16
 
