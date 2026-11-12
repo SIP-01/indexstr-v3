@@ -90,3 +90,28 @@ def test_validate_catches_bad_x():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+def test_bip340_official_vector_zero():
+    """BIP-340 official signing vector 0 must match byte-for-byte."""
+    seckey = bytes.fromhex("00" * 31 + "03")
+    pubkey = bytes.fromhex(
+        "F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9"
+    )
+    aux = bytes(32)
+    msg = bytes(32)
+    sig = bytes.fromhex(
+        "E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA8215"
+        "25F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0"
+    )
+
+    assert nostr.pubkey_from_seckey(seckey.hex()) == pubkey.hex().lower()
+    assert nostr.schnorr_sign(msg, seckey, aux) == sig
+    assert nostr.schnorr_verify(msg, pubkey, sig) is True
+
+
+def test_bip340_rejects_bad_length_and_invalid_signature():
+    assert nostr.schnorr_verify(bytes(31), bytes(32), bytes(64)) is False
+    assert nostr.schnorr_verify(bytes(32), bytes(31), bytes(64)) is False
+    assert nostr.schnorr_verify(bytes(32), bytes(32), bytes(63)) is False
+    assert nostr.schnorr_verify(bytes(32), bytes(32), bytes(64)) is False
+
