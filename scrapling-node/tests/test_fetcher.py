@@ -147,6 +147,7 @@ def test_tier1_pins_dns_and_disables_automatic_redirects(monkeypatch):
         headers = {}
         url = "https://example.com/"
         body = b"ok"
+        content = b"ok"
         text = "ok"
 
     class FakeSession:
@@ -164,13 +165,6 @@ def test_tier1_pins_dns_and_disables_automatic_redirects(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setattr("curl_cffi.requests.Session", FakeSession)
-    monkeypatch.setattr(
-        "scrapling.engines.toolbelt.convertor.ResponseFactory.from_http_request",
-        lambda response, _parser, meta=None: SimpleNamespace(
-            status=response.status_code, body=response.body, url=response.url, meta=meta
-        ),
-    )
-
     response = TieredFetcher(stealth="off")._tier1("https://example.com/")
     assert response.status == 200
     assert captured["allow_redirects"] is False
@@ -287,4 +281,47 @@ def test_browser_proxy_rejects_credentials_and_query_secrets():
             TieredFetcher(safe_egress_proxy=proxy)._require_safe_browser_proxy()
         assert "password" not in str(error.value)
         assert "secret" not in str(error.value)
+
+def test_tier1_uses_real_dns_pinned_http_transport_without_scrapling_adapter(monkeypatch):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from sip01_node.fetcher import TieredFetcher
+
+    received = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            received["path"] = self.path
+            received["host"] = self.headers.get("Host")
+            body = b"<html><title>pinned</title></html>"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    monkeypatch.setattr(
+        "sip01_node.fetcher._check_public_host",
+        lambda _url: ("127.0.0.1",),
+    )
+    try:
+        response = TieredFetcher(stealth="off", timeout=3)._tier1(
+            f"http://example.invalid:{port}/pinned-check"
+        )
+        assert response.status == 200
+        assert response.body == b"<html><title>pinned</title></html>"
+        assert response.url == f"http://example.invalid:{port}/pinned-check"
+        assert received["path"] == "/pinned-check"
+        assert received["host"] == f"example.invalid:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
