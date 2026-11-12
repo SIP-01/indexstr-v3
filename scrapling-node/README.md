@@ -113,7 +113,7 @@ python -m sip01_node [--config config.toml] [--source indexstr/v3]
   `article:published_time`, thin-content gate), but byte-identical text metrics
   are not guaranteed across engines.
 - Static-tier SSRF protection: every DNS A/AAAA answer must be globally routable; libcurl is pinned to the validated addresses and redirects are validated/pinned one hop at a time before connecting. Automatic redirects and inherited environment proxies are disabled.
-- Browser tiers require an operator-verified `SIP01_SAFE_EGRESS_PROXY` HTTP(S) proxy. It must apply SSRF restrictions to every CONNECT, redirect and browser subresource; host/container networking must prevent direct egress bypass. A proxy URL alone is not evidence that its policy is safe.
+- Browser tiers require an operator-verified `SIP01_SAFE_EGRESS_PROXY` HTTP(S) proxy. It must apply SSRF restrictions to every CONNECT, redirect and browser subresource; host/container networking must prevent direct egress bypass. A proxy URL alone is not evidence that its policy is safe. Proxy URLs with userinfo, query strings or fragments are rejected; use an internal proxy protected by network policy rather than embedding credentials.
 - With `stealth=auto` and no proxy, only the static HTTP tier runs. With `stealth=always` and no proxy, the fetch fails closed.
 
 ## Tests
