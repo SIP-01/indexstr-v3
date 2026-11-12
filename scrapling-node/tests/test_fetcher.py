@@ -268,3 +268,23 @@ def test_always_mode_without_proxy_fails_before_fetch():
     with pytest.raises(TierUnavailableError, match="SIP01_SAFE_EGRESS_PROXY"):
         asyncio.run(TieredFetcher(stealth="always").fetch("https://8.8.8.8/"))
 
+def test_safe_url_for_log_redacts_userinfo_path_and_query():
+    from sip01_node.fetcher import _safe_url_for_log
+
+    assert _safe_url_for_log(
+        "https://alice:supersecret@example.com/private/path?token=secret#frag"
+    ) == "https://example.com"
+
+
+def test_browser_proxy_rejects_credentials_and_query_secrets():
+    from sip01_node.fetcher import TierUnavailableError, TieredFetcher
+
+    for proxy in (
+        "http://user:password@127.0.0.1:8899",
+        "http://127.0.0.1:8899/?token=secret",
+    ):
+        with pytest.raises(TierUnavailableError) as error:
+            TieredFetcher(safe_egress_proxy=proxy)._require_safe_browser_proxy()
+        assert "password" not in str(error.value)
+        assert "secret" not in str(error.value)
+
