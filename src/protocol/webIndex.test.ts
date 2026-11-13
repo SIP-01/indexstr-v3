@@ -215,7 +215,7 @@ describe('buildIndexEvent', () => {
       platform: 'github',
       network: 'clearnet',
       role: 'Tool',
-      proto: ['mcp', 'http'],
+      proto: ['MCP', 'HTTP'],
       capabilityAddress: '39698:' + 'a'.repeat(64) + ':echo-tool',
       country: 'de',
       mime: 'APPLICATION/PDF',
