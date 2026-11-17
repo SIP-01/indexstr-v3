@@ -125,10 +125,10 @@ public metadata."*
   "created_at": 1786250000,
   "content": "{\"title\":\"Example Page\",\"description\":\"A page about...\",\"image\":\"https://example.com/og.jpg\"}",
   "tags": [
-    ["d", "widx:9f86d081884c7d659a2feaa0c55ad015"],
+    ["d", "widx:3641c5f2274c5471278ab5bf1df6d185"],
     ["u", "https://example.com/page"],
     ["l", "en"],
-    ["x", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
+    ["x", "13c3940b2829e9397d43d54f0145c6b3f792ebbe13674ac6e5de1b354a1b3e7a"],
     ["v", "1"],
     ["published", "1786200000"],
     ["source", "indexstr/v3"],
@@ -326,7 +326,7 @@ Any SIP-01 compatible search engine can read Indexstr's observations:
 ```json
 {
   "kinds": [39697],
-  "#d": ["widx:9f86d081884c7d659a2feaa0c55ad015"]
+  "#d": ["widx:3641c5f2274c5471278ab5bf1df6d185"]
 }
 ```
 
